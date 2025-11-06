@@ -134,13 +134,13 @@ class DocumentProcessor:
     def _extract_from_pdf(self, file) -> str:
         """提取PDF文件内容"""
         try:
-            import PyPDF2
+            from pypdf import PdfReader
 
             # 重置文件指针
             file.seek(0)
 
             # 创建PDF读取器
-            pdf_reader = PyPDF2.PdfReader(file)
+            pdf_reader = PdfReader(file)
 
             # 提取所有页面的文本
             text_content = []
@@ -159,7 +159,7 @@ class DocumentProcessor:
             return content
 
         except ImportError:
-            logger.error("PyPDF2库未安装，无法解析PDF文档")
+            logger.error("pypdf库未安装，无法解析PDF文档")
             return ""
         except Exception as e:
             logger.error(f"PDF文档解析失败: {e}")
