@@ -180,6 +180,7 @@
       @ok="handleAddProject"
       @cancel="cancelAddProject"
       :mask-closable="false"
+      width="700px"
     >
       <a-form
         ref="addProjectFormRef"
@@ -197,6 +198,22 @@
             :auto-size="{ minRows: 3, maxRows: 5 }"
           />
         </a-form-item>
+        
+        <!-- 凭据列表 -->
+        <a-divider orientation="left">项目凭据</a-divider>
+        <div v-for="(credential, index) in addProjectForm.credentials" :key="index" style="margin-bottom: 8px; display: flex; align-items: flex-start; gap: 8px;">
+          <a-input v-model="credential.system_url" placeholder="项目地址" style="flex: 2;" />
+          <a-input v-model="credential.username" placeholder="用户名" style="flex: 1;" />
+          <a-input-password v-model="credential.password" placeholder="密码" style="flex: 1;" />
+          <a-input v-model="credential.user_role" placeholder="角色" style="flex: 1;" />
+          <a-button type="text" status="danger" @click="removeCredential(index)">删除</a-button>
+        </div>
+        <a-button type="dashed" long @click="addCredential">
+          <template #icon>
+            <icon-plus />
+          </template>
+          添加凭据
+        </a-button>
       </a-form>
     </a-modal>
 
@@ -207,6 +224,7 @@
       @ok="handleEditProject"
       @cancel="cancelEditProject"
       :mask-closable="false"
+      width="700px"
     >
       <a-form
         ref="editProjectFormRef"
@@ -224,6 +242,22 @@
             :auto-size="{ minRows: 3, maxRows: 5 }"
           />
         </a-form-item>
+        
+        <!-- 凭据列表 -->
+        <a-divider orientation="left">项目凭据</a-divider>
+        <div v-for="(credential, index) in editProjectForm.credentials" :key="index" style="margin-bottom: 8px; display: flex; align-items: flex-start; gap: 8px;">
+          <a-input v-model="credential.system_url" placeholder="项目地址" style="flex: 2;" />
+          <a-input v-model="credential.username" placeholder="用户名" style="flex: 1;" />
+          <a-input-password v-model="credential.password" placeholder="留空不改" style="flex: 1;" />
+          <a-input v-model="credential.user_role" placeholder="角色" style="flex: 1;" />
+          <a-button type="text" status="danger" @click="removeEditCredential(index)">删除</a-button>
+        </div>
+        <a-button type="dashed" long @click="addEditCredential">
+          <template #icon>
+            <icon-plus />
+          </template>
+          添加凭据
+        </a-button>
       </a-form>
     </a-modal>
   </div>
@@ -678,7 +712,8 @@ const addProjectModalVisible = ref(false);
 const addProjectFormRef = ref();
 const addProjectForm = reactive<CreateProjectRequest>({
   name: '',
-  description: ''
+  description: '',
+  credentials: []
 });
 
 // 添加项目表单验证规则
@@ -692,11 +727,34 @@ const addProjectRules = {
   ]
 };
 
+// 添加凭据
+const addCredential = () => {
+  if (!addProjectForm.credentials) {
+    addProjectForm.credentials = [];
+  }
+  addProjectForm.credentials.push({
+    system_url: '',
+    username: '',
+    password: '',
+    user_role: ''
+  });
+};
+
+// 删除凭据
+const removeCredential = (index: number) => {
+  if (addProjectForm.credentials) {
+    addProjectForm.credentials.splice(index, 1);
+  }
+};
+
 // 显示添加项目模态框
 const showAddProjectModal = () => {
   // 重置表单
   addProjectForm.name = '';
   addProjectForm.description = '';
+  addProjectForm.credentials = [];
+  // 默认添加一个凭据
+  addCredential();
   // 显示模态框
   addProjectModalVisible.value = true;
 };
@@ -711,9 +769,7 @@ const handleAddProject = async () => {
   // 验证表单
   try {
     await addProjectFormRef.value.validate();
-    // 验证通过，继续处理
   } catch (errors) {
-    // 表单验证失败
     console.error('表单验证失败:', errors);
     return;
   }
@@ -721,16 +777,15 @@ const handleAddProject = async () => {
   // 创建项目数据对象
   const projectData: CreateProjectRequest = {
     name: addProjectForm.name,
-    description: addProjectForm.description
+    description: addProjectForm.description,
+    credentials: addProjectForm.credentials || []
   };
 
   try {
-    // 调用创建项目API
     const response = await createProject(projectData);
 
     if (response.success) {
       Message.success('项目创建成功');
-      // 刷新项目列表
       fetchProjectList();
       // 关闭模态框
       addProjectModalVisible.value = false;
@@ -749,7 +804,8 @@ const editProjectFormRef = ref();
 const editProjectForm = reactive<UpdateProjectRequest & { id: number }>({
   id: 0,
   name: '',
-  description: ''
+  description: '',
+  credentials: []
 });
 
 // 编辑项目表单验证规则
@@ -763,20 +819,45 @@ const editProjectRules = {
   ]
 };
 
+// 编辑凭据
+const addEditCredential = () => {
+  if (!editProjectForm.credentials) {
+    editProjectForm.credentials = [];
+  }
+  editProjectForm.credentials.push({
+    system_url: '',
+    username: '',
+    password: '',
+    user_role: ''
+  });
+};
+
+const removeEditCredential = (index: number) => {
+  if (editProjectForm.credentials) {
+    editProjectForm.credentials.splice(index, 1);
+  }
+};
+
 // 显示编辑项目模态框
 const editProject = (project: Project, event?: Event) => {
-  // 阻止事件冒泡，避免触发行点击事件
   if (event) {
     event.stopPropagation();
   }
+  
   // 设置表单数据
-  Object.assign(editProjectForm, {
-    id: project.id,
-    name: project.name,
-    description: project.description
-  });
+  editProjectForm.id = project.id;
+  editProjectForm.name = project.name;
+  editProjectForm.description = project.description;
+  
+  // 复制凭据数据（密码不显示）
+  editProjectForm.credentials = (project.credentials || []).map(cred => ({
+    id: cred.id,
+    system_url: cred.system_url,
+    username: cred.username,
+    password: '',
+    user_role: cred.user_role
+  }));
 
-  // 显示模态框
   editProjectModalVisible.value = true;
 };
 
@@ -787,12 +868,9 @@ const cancelEditProject = () => {
 
 // 处理编辑项目
 const handleEditProject = async () => {
-  // 验证表单
   try {
     await editProjectFormRef.value.validate();
-    // 验证通过，继续处理
   } catch (errors) {
-    // 表单验证失败
     console.error('表单验证失败:', errors);
     return;
   }
@@ -800,18 +878,16 @@ const handleEditProject = async () => {
   // 更新项目数据对象
   const projectData: UpdateProjectRequest = {
     name: editProjectForm.name,
-    description: editProjectForm.description
+    description: editProjectForm.description,
+    credentials: editProjectForm.credentials || []
   };
 
   try {
-    // 调用更新项目API
     const response = await updateProject(editProjectForm.id, projectData);
 
     if (response.success) {
       Message.success('项目更新成功');
-      // 刷新项目列表
       fetchProjectList();
-      // 关闭模态框
       editProjectModalVisible.value = false;
     } else {
       Message.error(response.error || '更新项目失败');
