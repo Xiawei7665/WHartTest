@@ -323,7 +323,7 @@ const checkProjectPermission = () => {
 
 // 联系管理员
 const contactAdmin = () => {
-  Message.info('请联系系统管理员获取项目管理权限，邮箱：admin@example.com');
+  Message.info('请联系系统管理员获取项目管理权限');
 };
 
 // 表格列定义
