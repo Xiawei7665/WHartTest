@@ -179,31 +179,46 @@ class DocumentProcessor:
             # 使用python-docx读取Word文档
             doc = Document(file)
 
+            logger.info(f"开始提取Word文档，段落数: {len(doc.paragraphs)}, 表格数: {len(doc.tables)}")
+
             # 按文档顺序处理所有元素（段落和表格）
             content_parts = []
+            extracted_paragraphs = 0
+            extracted_tables = 0
+
+            # 创建元素到对象的映射，避免重复查找（性能优化 + 防止内容丢失）
+            paragraph_map = {p._element: p for p in doc.paragraphs}
+            table_map = {t._element: t for t in doc.tables}
 
             # 遍历文档的所有元素
             for element in doc.element.body:
                 if element.tag.endswith('p'):  # 段落元素
-                    # 找到对应的段落对象
-                    for paragraph in doc.paragraphs:
-                        if paragraph._element == element:
-                            text = paragraph.text.strip()
-                            if text:
-                                markdown_text = self._convert_paragraph_to_markdown(paragraph)
-                                content_parts.append(markdown_text)
-                            break
+                    paragraph = paragraph_map.get(element)
+                    if paragraph:
+                        text = paragraph.text.strip()
+                        if text:  # 只处理非空段落
+                            markdown_text = self._convert_paragraph_to_markdown(paragraph)
+                            content_parts.append(markdown_text)
+                            extracted_paragraphs += 1
+
                 elif element.tag.endswith('tbl'):  # 表格元素
-                    # 找到对应的表格对象
-                    for table in doc.tables:
-                        if table._element == element:
-                            table_content = self._extract_table_content(table)
-                            if table_content:
-                                content_parts.append(table_content)
-                            break
+                    table = table_map.get(element)
+                    if table:
+                        table_content = self._extract_table_content(table)
+                        if table_content:
+                            content_parts.append(table_content)
+                            extracted_tables += 1
 
             content = "\n\n".join(content_parts)
-            logger.info(f"成功提取Word文档内容，元素数: {len(content_parts)}, 内容长度: {len(content)}")
+
+            logger.info(f"Word文档提取完成 - 提取段落: {extracted_paragraphs}, 提取表格: {extracted_tables}, 总内容长度: {len(content)}")
+            logger.info(f"原始段落数: {len(doc.paragraphs)}, 实际提取: {extracted_paragraphs}, 差异: {len(doc.paragraphs) - extracted_paragraphs}")
+
+            # 如果内容长度为0或者提取的段落数明显少于原始段落数，记录警告
+            if len(content) == 0:
+                logger.error("Word文档提取结果为空！")
+            elif extracted_paragraphs < len(doc.paragraphs) * 0.5:
+                logger.warning(f"Word文档可能存在内容丢失！原始{len(doc.paragraphs)}段，仅提取{extracted_paragraphs}段")
 
             return content
 
@@ -212,6 +227,8 @@ class DocumentProcessor:
             return ""
         except Exception as e:
             logger.error(f"Word文档解析失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
             # 如果解析失败，使用简化方法
             return self._extract_from_word_simple(file)
 
@@ -275,17 +292,51 @@ class DocumentProcessor:
 
 
 
-    def _extract_table_content(self, table) -> str:
-        """提取表格内容为Markdown格式"""
+    def _extract_table_content(self, table, depth=0) -> str:
+        """提取表格内容为Markdown格式，支持嵌套表格
+        
+        Args:
+            table: Word表格对象
+            depth: 递归深度，用于处理嵌套表格
+        """
         try:
             table_rows = []
+            total_cells = 0
+            extracted_cells = 0
+            nested_tables_found = 0
 
             for i, row in enumerate(table.rows):
                 row_cells = []
                 for cell in row.cells:
-                    cell_text = cell.text.strip().replace('\n', ' ')
+                    total_cells += 1
+                    
+                    # 检查单元格中是否包含嵌套表格
+                    nested_tables = cell.tables
+                    if nested_tables and depth < 3:  # 最多支持3层嵌套
+                        nested_tables_found += len(nested_tables)
+                        # 提取单元格中的文本（不包括嵌套表格的文本）
+                        cell_text_parts = []
+                        
+                        # 提取单元格段落文本
+                        for paragraph in cell.paragraphs:
+                            para_text = paragraph.text.strip()
+                            if para_text:
+                                cell_text_parts.append(para_text)
+                        
+                        # 递归提取嵌套表格
+                        for nested_table in nested_tables:
+                            nested_content = self._extract_table_content(nested_table, depth + 1)
+                            if nested_content:
+                                cell_text_parts.append(f"[嵌套表格]\n{nested_content}")
+                        
+                        cell_text = " ".join(cell_text_parts).replace('\n', ' ')
+                    else:
+                        # 普通单元格，直接提取文本
+                        cell_text = cell.text.strip().replace('\n', ' ')
+                    
                     if cell_text:
                         row_cells.append(cell_text)
+                        extracted_cells += 1
                     else:
                         row_cells.append("")
 
@@ -298,11 +349,18 @@ class DocumentProcessor:
                         table_rows.append(separator)
 
             if table_rows:
-                return "\n".join(table_rows)
+                table_content = "\n".join(table_rows)
+                indent = "  " * depth
+                logger.info(f"{indent}表格提取完成 (深度{depth}) - 行数: {len(table.rows)}, 总单元格: {total_cells}, 非空单元格: {extracted_cells}, 嵌套表格: {nested_tables_found}, 内容长度: {len(table_content)}")
+                return table_content
+            else:
+                logger.warning(f"表格为空或所有行都为空 (深度{depth})")
             return ""
 
         except Exception as e:
-            logger.warning(f"表格内容提取失败: {e}")
+            logger.error(f"表格内容提取失败 (深度{depth}): {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
             return ""
 
     def _get_sample_content(self) -> str:
@@ -1138,12 +1196,16 @@ class RequirementModuleService:
             document.save()
             
             # 提取文档内容
+            logger.info(f"开始处理文档 {document.id}: {document.title}")
             content = self.document_processor.extract_content(document)
             if not content:
                 raise Exception("无法提取文档内容")
             
+            logger.info(f"文档内容提取完成，原始长度: {len(content)} 字符")
+            
             # 预处理内容
             processed_content = self.document_processor.preprocess_content(content)
+            logger.info(f"内容预处理完成，处理后长度: {len(processed_content)} 字符")
             
             # 更新文档统计信息
             document.word_count = len(processed_content)
@@ -1151,12 +1213,26 @@ class RequirementModuleService:
             document.content = processed_content
             document.save()
             
+            # 验证保存后的内容
+            document.refresh_from_db()
+            saved_content_length = len(document.content) if document.content else 0
+            logger.info(f"文档保存到数据库后，内容长度: {saved_content_length} 字符")
+            
+            if saved_content_length < len(processed_content):
+                logger.error(f"!!!内容截断警告!!! 处理前: {len(processed_content)}, 保存后: {saved_content_length}, 丢失: {len(processed_content) - saved_content_length} 字符")
+            elif saved_content_length == 0:
+                logger.error(f"!!!严重错误!!! 文档内容保存后为空")
+            
             # 模块拆分（支持多种拆分方式）
+            logger.info(f"开始模块拆分，拆分选项: {split_options}")
             modules_data = self.module_splitter.split_into_modules(document, processed_content, split_options)
             
             # 创建模块对象
             modules = []
-            for module_data in modules_data:
+            for i, module_data in enumerate(modules_data):
+                module_content_length = len(module_data['content'])
+                logger.info(f"创建模块 {i+1}/{len(modules_data)}: {module_data['title']}, 内容长度: {module_content_length}")
+                
                 module = RequirementModule.objects.create(
                     document=document,
                     title=module_data['title'],
@@ -1170,6 +1246,15 @@ class RequirementModuleService:
                     is_auto_generated=True,
                     ai_suggested_title=module_data['title']
                 )
+                
+                # 验证模块保存后的内容
+                module.refresh_from_db()
+                saved_module_content_length = len(module.content) if module.content else 0
+                logger.info(f"模块 {module.id} 保存后，内容长度: {saved_module_content_length}")
+                
+                if saved_module_content_length < module_content_length:
+                    logger.error(f"!!!模块内容截断!!! 模块ID: {module.id}, 原始: {module_content_length}, 保存: {saved_module_content_length}, 丢失: {module_content_length - saved_module_content_length} 字符")
+                
                 modules.append(module)
             
             # 更新文档状态
@@ -1181,6 +1266,8 @@ class RequirementModuleService:
             
         except Exception as e:
             logger.error(f"文档模块拆分失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
             document.status = 'failed'
             document.save()
             raise
