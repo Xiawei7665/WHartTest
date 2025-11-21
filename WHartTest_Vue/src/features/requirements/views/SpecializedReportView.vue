@@ -253,7 +253,7 @@ const currentAnalysisIssues = computed(() => {
 const filteredIssues = computed(() => {
   if (!priorityFilter.value) return currentAnalysisIssues.value;
   return currentAnalysisIssues.value.filter(
-    issue => (issue.severity || issue.priority) === priorityFilter.value
+    (issue: any) => (issue.severity || issue.priority) === priorityFilter.value
   );
 });
 
