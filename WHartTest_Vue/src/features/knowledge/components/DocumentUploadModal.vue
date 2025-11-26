@@ -36,7 +36,7 @@
             <input
               ref="fileInputRef"
               type="file"
-              accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.html,.htm"
+              accept=".pdf,.docx,.pptx,.txt,.md,.html,.htm"
               style="display: none"
               @change="handleFileInputChange"
             />
@@ -45,7 +45,7 @@
               <div class="upload-text">
                 <div>点击选择文件</div>
                 <div class="upload-tip">
-                  支持 PDF、Word、PowerPoint、文本、Markdown、HTML 格式
+                  支持 PDF、Word(.docx)、PPT(.pptx)、文本、Markdown、HTML 格式
                 </div>
               </div>
             </div>
@@ -210,6 +210,14 @@ const handleUploadTypeChange = () => {
   formRef.value?.clearValidate();
 };
 
+// 支持的文件扩展名（与后端 DocumentLoader 支持的格式保持一致）
+const ALLOWED_EXTENSIONS = ['pdf', 'docx', 'pptx', 'txt', 'md', 'html', 'htm'];
+
+const validateFileExtension = (file: File): boolean => {
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+  return ALLOWED_EXTENSIONS.includes(ext);
+};
+
 const triggerFileInput = () => {
   fileInputRef.value?.click();
 };
@@ -219,6 +227,13 @@ const handleFileInputChange = (event: Event) => {
   const file = target.files?.[0];
 
   if (file) {
+    // 验证文件扩展名
+    if (!validateFileExtension(file)) {
+      Message.error(`不支持的文件格式，仅支持：${ALLOWED_EXTENSIONS.join(', ')}`);
+      target.value = '';
+      return;
+    }
+
     formData.file = file;
 
     // 如果没有设置标题，使用文件名作为默认标题
@@ -253,9 +268,7 @@ const getDocumentType = (uploadType: string, file?: File): DocumentType => {
     const ext = file.name.split('.').pop()?.toLowerCase();
     const typeMap: Record<string, DocumentType> = {
       'pdf': 'pdf',
-      'doc': 'docx',
       'docx': 'docx',
-      'ppt': 'pptx',
       'pptx': 'pptx',
       'txt': 'txt',
       'md': 'md',
