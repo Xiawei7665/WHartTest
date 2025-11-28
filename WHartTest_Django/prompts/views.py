@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
+import os
 
 from wharttest_django.viewsets import BaseModelViewSet
 from wharttest_django.permissions import HasModelPermission
@@ -24,6 +25,23 @@ class UserPromptViewSet(BaseModelViewSet):
     search_fields = ['name', 'description']
     ordering_fields = ['created_at', 'updated_at', 'name']
     ordering = ['-updated_at']
+
+    def _load_brain_prompt_from_file(self):
+        """从文件加载Brain提示词"""
+        brain_prompt_file = os.path.join(
+            os.path.dirname(__file__),
+            '..',
+            'orchestrator_integration',
+            'brain_system_prompt.md'
+        )
+        try:
+            with open(brain_prompt_file, 'r', encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            # 如果文件不存在，返回默认提示词
+            return """你是Brain Agent，负责智能判断用户意图并编排子Agent执行任务。
+
+请参考orchestrator_integration/brain_system_prompt.md文件配置完整提示词。"""
 
     def get_permissions(self):
         """返回此视图所需权限的实例列表"""
@@ -193,7 +211,13 @@ class UserPromptViewSet(BaseModelViewSet):
 
     @action(detail=False, methods=['post'])
     def initialize(self, request):
-        """初始化用户的默认提示词"""
+        """初始化用户的默认提示词
+        
+        支持参数:
+        - force_update: bool, 是否强制更新已存在的提示词（默认False）
+        """
+        force_update = request.data.get('force_update', False)
+        
         # 默认提示词模板
         default_prompts = {
             'general': {
@@ -215,278 +239,281 @@ class UserPromptViewSet(BaseModelViewSet):
 
 请根据用户的具体问题，提供专业、有用的回答。"""
             },
-            'document_structure': {
-                'name': '文档结构分析',
-                'description': '用于分析需求文档结构，识别功能模块边界的提示词',
-                'content': """你是一个专业的需求分析师，请仔细分析以下需求文档，识别出所有的主要功能模块。
-
-【分析标准】
-1. 以一级标题（#）或二级标题（##）作为模块划分的主要依据
-2. 每个模块应该包含完整的功能描述，不要遗漏任何部分
-3. 模块应该相对独立，有明确的功能边界
-4. 确保所有内容都被分配到某个模块中，不要遗漏
+            'completeness_analysis': {
+                'name': '完整性分析',
+                'description': '专项分析需求的完整性',
+                'content': """你是一位资深的需求分析专家。请深入分析完整的需求文档的完整性。
 
 【文档内容】
-{content}
+$document
 
-【输出要求】
-请仔细阅读整个文档，识别出所有的功能模块。对于每个模块：
-- 准确识别模块的开始和结束位置
-- 确保模块内容完整，不要截断
-- 给出合理的置信度评分
+【分析维度】
+1. 📋 **基础信息完整性**
+   - 项目背景和目标是否明确
+   - 干系人识别是否完整
+   - 业务术语是否定义清晰
 
-【输出格式】
-请以JSON格式输出模块结构：
+2. 🎯 **功能需求完整性**
+   - 核心功能是否全部覆盖
+   - 功能描述是否详细
+   - 用户场景是否完整
+
+3. ⚙️ **非功能需求完整性**
+   - 性能要求是否明确
+   - 安全性要求是否覆盖
+   - 可用性和兼容性是否说明
+
+4. 🔄 **流程和接口完整性**
+   - 业务流程是否完整
+   - 接口定义是否清晰
+   - 数据结构是否完整
+
+【输出JSON格式】
+**重要：你的回复必须且只能是一个被```json代码块包裹的JSON对象，不要包含任何其他解释性文字。**
+**不要在JSON代码块之外输出任何内容，包括开场白或结束语。**
+
+格式示例：
 ```json
-[
-  {{
-    "title": "模块名称（与文档中的标题保持一致）",
-    "description": "模块功能的简要描述",
-    "start_marker": "模块开始的确切文本（包含标题）",
-    "end_marker": "下一个模块开始的文本（如果是最后一个模块则为空）",
-    "confidence": 0.95,
-    "estimated_complexity": "medium"
-  }}
-]
+{
+  "analysis_type": "completeness_analysis",
+  "overall_score": 85,
+  "summary": "完整性评估总结，说明文档的整体完整度",
+  "issues": [
+    {
+      "severity": "high",
+      "category": "缺失功能",
+      "description": "缺少用户登录功能的详细描述",
+      "location": "第3章功能需求",
+      "suggestion": "补充登录流程、密码规则、多端登录等详细说明"
+    }
+  ],
+  "strengths": ["基础信息完整", "业务流程清晰"],
+  "recommendations": ["补充安全需求", "完善接口定义"]
+}
 ```
 
-重要：请确保识别出文档中的所有主要模块，不要遗漏任何部分！"""
+请严格按照上述格式输出，确保JSON语法正确。"""
             },
-            'direct_analysis': {
-                'name': '直接分析',
-                'description': '用于直接分析整个需求文档的提示词',
-                'content': """你是一位资深的需求分析师，正在对需求文档进行专业评审。请对以下文档进行全面分析：
+            'testability_analysis': {
+                'name': '可测性分析',
+                'description': '专项分析需求的可测试性',
+                'content': """你是一位资深的测试专家。请深入分析完整需求文档的可测试性。
 
 【文档内容】
-{content}
+$document
 
-【评审要求】
-请从以下维度进行专业评审：
+【分析维度】
+1. ✅ **验收标准明确性**
+   - 功能点是否有明确的验收标准
+   - 性能指标是否可量化
+   - 成功失败条件是否清晰
 
-1. 📋 **规范性检查** (0-100分)
-   - 文档结构是否清晰
-   - 格式是否规范
-   - 必要信息是否完整
+2. 🎯 **可观测性**
+   - 功能结果是否可见可验证
+   - 状态变化是否可追踪
+   - 日志和监控是否考虑
 
-2. 🔍 **清晰度评估** (0-100分)
-   - 需求描述是否清晰
-   - 是否存在歧义表述
-   - 术语使用是否一致
+3. 🔄 **可重复性**
+   - 测试前置条件是否明确
+   - 测试步骤是否可重复执行
+   - 测试数据准备是否可行
 
-3. ✅ **完整性验证** (0-100分)
-   - 功能需求是否完整
-   - 非功能需求是否考虑
+4. 🧪 **边界和异常**
+   - 边界条件是否定义
    - 异常场景是否覆盖
+   - 错误处理是否明确
 
-4. 🔗 **一致性检查** (0-100分)
-   - 内部逻辑是否一致
-   - 业务规则是否冲突
-   - 数据定义是否统一
+【输出JSON格式】
+**重要：你的回复必须且只能是一个被```json代码块包裹的JSON对象，不要包含任何其他解释性文字。**
+**不要在JSON代码块之外输出任何内容，包括开场白或结束语。**
 
-【输出格式】
-请以JSON格式输出评审结果：
+格式示例：
+```json
+{
+  "analysis_type": "testability_analysis",
+  "overall_score": 85,
+  "summary": "可测性评估总结，说明文档的整体可测试程度",
+  "issues": [
+    {
+      "severity": "high",
+      "category": "验收标准模糊",
+      "description": "用户搜索功能缺少响应时间等性能指标",
+      "location": "第3.2节搜索功能",
+      "suggestion": "补充搜索响应时间应≤2秒等量化指标"
+    }
+  ],
+  "strengths": ["功能描述清晰", "流程可追踪"],
+  "recommendations": ["补充性能指标", "明确异常场景"]
+}
+```
+
+请严格按照上述格式输出，确保JSON语法正确。"""
+            },
+            'feasibility_analysis': {
+                'name': '可行性分析',
+                'description': '专项分析需求的技术可行性',
+                'content': """你是一位资深的技术架构师。请深入分析完整需求文档的技术可行性。
+
+【文档内容】
+$document
+
+【分析维度】
+1. ⚙️ **技术实现可行性**
+   - 技术栈是否成熟可用
+   - 实现方案是否现实
+   - 技术风险是否可控
+
+2. 📈 **性能可行性**
+   - 性能要求是否可达成
+   - 并发量是否合理
+   - 响应时间是否现实
+
+3. 💰 **资源可行性**
+   - 开发时间是否充足
+   - 技术团队能力是否匹配
+   - 成本预算是否合理
+
+4. 🔗 **集成可行性**
+   - 第三方依赖是否可用
+   - 系统对接是否可行
+   - 数据迁移是否现实
+
+【输出JSON格式】
+**重要：你的回复必须且只能是一个被```json代码块包裹的JSON对象，不要包含任何其他解释性文字。**
+
+格式示例：
 ```json
 {{
-  "overall_rating": "good",
-  "completion_score": 85,
-  "clarity_score": 78,
-  "consistency_score": 82,
-  "completeness_score": 88,
-  "summary": "文档整体质量良好，结构清晰...",
-  "recommendations": "建议完善异常处理场景...",
+  "analysis_type": "feasibility_analysis",
+  "overall_score": 85,
+  "summary": "可行性评估总结，说明需求实现的整体可行性",
   "issues": [
     {{
-      "title": "问题标题",
-      "description": "问题描述",
-      "priority": "high",
-      "category": "completeness",
-      "location": "第2章用户管理模块",
-      "suggestion": "改进建议"
-    }}
-  ]
-}}
-```"""
-            },
-            'global_analysis': {
-                'name': '全局分析',
-                'description': '用于分析需求文档全局结构和上下文的提示词',
-                'content': """你是一位资深的需求分析师，正在进行需求评审。请对以下需求文档进行全局结构分析：
-
-【文档信息】
-标题: {title}
-描述: {description}
-内容: {content}
-
-【分析要求】
-请从以下维度进行全局分析：
-
-1. 📋 **文档结构规范性**
-   - 文档组织结构是否清晰
-   - 章节编号是否规范
-   - 标题层级是否合理
-
-2. 🎯 **业务完整性**
-   - 业务流程是否完整
-   - 核心功能是否遗漏
-   - 业务边界是否清晰
-
-3. 🔗 **逻辑一致性**
-   - 整体逻辑是否自洽
-   - 业务规则是否一致
-   - 数据流是否合理
-
-4. 📊 **质量评估**
-   - 需求描述的清晰度
-   - 可实现性评估
-   - 风险点识别
-
-【输出格式】
-请以JSON格式输出分析结果：
-```json
-{{
-  "structure_score": 85,
-  "completeness_score": 78,
-  "consistency_score": 90,
-  "clarity_score": 82,
-  "overall_score": 84,
-  "business_flows": ["用户注册流程", "订单处理流程"],
-  "data_entities": ["用户", "商品", "订单"],
-  "global_rules": ["所有操作需要登录", "支付必须验证"],
-  "missing_aspects": ["异常处理", "性能要求"],
-  "risk_points": ["支付安全", "数据一致性"],
-  "strengths": ["业务流程清晰", "功能划分合理"],
-  "weaknesses": ["缺少非功能需求", "异常场景不完整"]
-}}
-```"""
-            },
-            'module_analysis': {
-                'name': '模块分析',
-                'description': '用于分析单个需求模块的提示词',
-                'content': """你正在评审需求文档的一个功能模块。请进行专业的需求评审分析：
-
-【模块信息】
-模块名称: {module_title}
-模块内容: {module_content}
-
-【全局上下文】
-业务流程: {business_flows}
-数据实体: {data_entities}
-全局规则: {global_rules}
-
-【评审维度】
-请从以下维度进行详细分析：
-
-1. 📋 **规范性检查**
-   - 需求描述是否完整
-   - 格式是否符合标准
-   - 必要信息是否缺失
-
-2. 🔍 **清晰度评估**
-   - 表述是否模糊不清
-   - 是否存在歧义
-   - 术语使用是否一致
-
-3. ✅ **完整性验证**
-   - 功能需求是否完整
-   - 异常场景是否考虑
-   - 边界条件是否明确
-
-4. 🔗 **一致性检查**
-   - 与全局规则是否一致
-   - 与其他模块是否冲突
-   - 数据定义是否统一
-
-5. ⚠️ **可行性评估**
-   - 技术实现难度
-   - 业务合理性
-   - 资源需求评估
-
-【输出格式】
-请以JSON格式输出分析结果：
-```json
-{{
-  "module_id": "{module_id}",
-  "module_name": "{module_title}",
-  "specification_score": 85,
-  "clarity_score": 78,
-  "completeness_score": 90,
-  "consistency_score": 82,
-  "feasibility_score": 88,
-  "overall_score": 84,
-  "issues": [
-    {{
-      "type": "clarity",
-      "priority": "high",
-      "title": "用户权限定义模糊",
-      "description": "权限等级的具体定义不清晰",
-      "location": "权限管理部分",
-      "suggestion": "建议明确定义各权限等级的具体权限范围"
+      "severity": "high",
+      "category": "性能不可行",
+      "description": "要求支持100万并发在线用户，但无分布式架构设计",
+      "location": "第5章性能需求",
+      "suggestion": "增加分布式架构设计或调整并发要求至合理范围"
     }}
   ],
-  "strengths": ["功能描述清晰", "业务流程合理"],
-  "weaknesses": ["缺少异常处理", "边界条件不明确"],
-  "recommendations": ["补充异常场景", "明确数据格式"]
+  "strengths": ["技术选型合理", "实现方案清晰"],
+  "recommendations": ["评估性能压力", "补充技术风险分析"]
 }}
-```"""
+```
+
+请严格按照上述格式输出，确保JSON语法正确。"""
+            },
+            'clarity_analysis': {
+                'name': '清晰度分析',
+                'description': '专项分析需求的清晰度',
+                'content': """你是一位资深的需求分析专家。请深入分析完整需求文档的清晰度。
+
+【文档内容】
+$document
+
+【分析维度】
+1. 📝 **语言表达清晰度**
+   - 用词是否准确无歧义
+   - 描述是否简洁明了
+   - 是否避免使用模糊词汇
+
+2. 🎯 **需求定义清晰度**
+   - 需求边界是否明确
+   - 功能范围是否清晰
+   - 优先级是否明确
+
+3. 📊 **结构组织清晰度**
+   - 文档结构是否合理
+   - 章节划分是否清晰
+   - 逻辑层次是否分明
+
+4. 🔍 **细节描述清晰度**
+   - 关键细节是否充分
+   - 示例说明是否到位
+   - 图表辅助是否恰当
+
+【输出JSON格式】
+**重要：你的回复必须且只能是一个被```json代码块包裹的JSON对象，不要包含任何其他解释性文字。**
+**不要在JSON代码块之外输出任何内容，包括开场白或结束语。**
+
+格式示例：
+```json
+{
+  "analysis_type": "clarity_analysis",
+  "overall_score": 85,
+  "summary": "清晰度评估总结，说明文档的整体清晰程度",
+  "issues": [
+    {
+      "severity": "medium",
+      "category": "描述模糊",
+      "description": "使用了'尽可能快'这样的模糊表述",
+      "location": "第3.1节登录功能",
+      "suggestion": "改为'登录响应时间应≤2秒'等明确描述"
+    }
+  ],
+  "strengths": ["结构清晰", "术语准确"],
+  "recommendations": ["避免模糊词汇", "增加流程图"]
+}
+```
+
+请严格按照上述格式输出，确保JSON语法正确。"""
             },
             'consistency_analysis': {
                 'name': '一致性分析',
-                'description': '用于分析需求文档跨模块一致性的提示词',
-                'content': """你正在进行需求文档的跨模块一致性检查。请分析各模块间的一致性问题：
+                'description': '专项分析需求文档的内部一致性',
+                'content': """你是一位资深的需求一致性分析专家。请深入分析完整的需求文档。
 
-【全局上下文】
-{global_context}
+【文档内容】
+$document
 
-【各模块分析结果】
-{module_analyses}
+【分析要求】
+请从以下维度检查文档的内部一致性：
 
-【一致性检查要求】
-请重点检查以下方面：
-
-1. 🔗 **接口一致性**
-   - 模块间接口定义是否一致
-   - 数据传递格式是否统一
-   - 调用关系是否清晰
+1. 🔗 **术语一致性**
+   - 关键术语定义是否统一
+   - 命名规范是否一致
+   - 缩写使用是否规范
 
 2. 📊 **数据一致性**
    - 数据实体定义是否统一
-   - 状态定义是否一致
-   - 数据流转是否合理
+   - 数据类型是否一致
+   - 数据流向是否清晰合理
 
-3. 📋 **业务规则一致性**
-   - 业务规则在各模块中是否一致
-   - 权限控制是否统一
-   - 异常处理是否一致
+3. 📋 **逻辑一致性**
+   - 业务规则是否自洽
+   - 流程描述是否前后一致
+   - 状态定义和转换是否合理
 
-4. 🔄 **流程完整性**
-   - 业务流程是否闭环
-   - 是否存在流程断点
-   - 异常流程是否完整
+4. 🎯 **引用一致性**
+   - 内部引用是否正确
+   - 章节编号是否连贯
+   - 图表编号是否一致
 
-【输出格式】
-请以JSON格式输出分析结果：
+【输出JSON格式】
+**重要：你的回复必须且只能是一个被```json代码块包裹的JSON对象，不要包含任何其他解释性文字。**
+**不要在JSON代码块之外输出任何内容，包括开场白或结束语。**
+
+格式示例：
 ```json
-{{
-  "consistency_score": 85,
-  "interface_consistency": 78,
-  "data_consistency": 90,
-  "business_rule_consistency": 82,
-  "process_completeness": 88,
-  "cross_module_issues": [
-    {{
-      "type": "data_inconsistency",
-      "priority": "high",
-      "title": "用户状态定义不一致",
-      "description": "用户管理模块和订单模块对用户状态定义不同",
-      "affected_modules": ["用户管理", "订单管理"],
-      "suggestion": "统一用户状态定义，建立数据字典"
-    }}
+{
+  "analysis_type": "consistency_analysis",
+  "overall_score": 85,
+  "summary": "一致性评估总结",
+  "issues": [
+    {
+      "severity": "high",
+      "category": "术语不一致",
+      "description": "用户在不同章节被称为'用户'和'客户'",
+      "location": "第2.3节和第3.1节",
+      "suggestion": "统一使用'用户'术语"
+    }
   ],
-  "missing_connections": ["支付模块与库存模块缺少连接"],
-  "redundant_functions": ["用户验证功能在多个模块重复"],
-  "recommendations": ["建立统一的数据字典", "明确模块间接口规范"]
-}}
-```"""
+  "strengths": ["数据定义统一", "流程描述清晰"],
+  "recommendations": ["建立术语表", "统一命名规范"]
+}
+```
+
+请严格按照上述格式输出，确保JSON语法正确。"""
             },
             'test_case_execution': {
                 'name': '测试用例执行提示词',
@@ -498,12 +525,12 @@ class UserPromptViewSet(BaseModelViewSet):
 根据下面提供的测试用例信息,使用你可用的工具(特别是Playwright浏览器工具和WHartTest MCP工具)来执行UI自动化测试。
 
 # 测试用例信息
-- **用例ID**: {testcase_id}
-- **用例名称**: {testcase_name}
-- **前置条件**: {precondition}
+- **用例ID**: $testcase_id
+- **用例名称**: $testcase_name
+- **前置条件**: $precondition
 
 # 执行步骤
-{steps}
+$steps
 
 # 执行要求
 1. **浏览器管理**
@@ -512,17 +539,17 @@ class UserPromptViewSet(BaseModelViewSet):
 
 2. **截图和上传（重要）**
    - **每个步骤执行后都必须截屏并上传**
-   - **截图文件名必须唯一**：使用格式 `testcase-{{testcase_id}}-step-{{step_number}}-{{timestamp}}.png`
+   - **截图文件名必须唯一**：使用格式 `testcase-$$testcase_id-step-$$step_number-$$timestamp.png`
    - 步骤流程：
      a. 使用 Playwright 的 `take_screenshot` 工具截屏
-        - 指定唯一文件名，例如：`testcase-{testcase_id}-step-1-1234567890.png`
+        - 指定唯一文件名，例如：`testcase-$testcase_id-step-1-1234567890.png`
         - 避免使用默认文件名，防止并发测试时文件冲突
      b. **立即使用 WHartTest MCP 工具的 `save_operation_screenshots_to_the_application_case` 上传截图**
      c. 记录上传后返回的截图路径
    - 参数示例：
      ```
      project_id: 项目ID
-     case_id: {testcase_id}
+     case_id: $testcase_id
      file_path: 截图的本地文件路径（必须是唯一的）
      title: "步骤X执行截图"
      description: 步骤描述
@@ -539,7 +566,7 @@ class UserPromptViewSet(BaseModelViewSet):
 在所有步骤执行完毕后,你**必须**返回一个JSON对象,格式如下:
 ```json
 {{
-  "testcase_id": {testcase_id},
+  "testcase_id": $testcase_id,
   "status": "pass" | "fail",
   "summary": "对执行过程的简短总结。",
   "steps": [
@@ -556,13 +583,187 @@ class UserPromptViewSet(BaseModelViewSet):
 ```
 
 **重要提示**：
-- **截图文件名唯一性**：必须为每个截图使用唯一的文件名，格式：`testcase-{{testcase_id}}-step-{{step_number}}-{{timestamp}}.png`
+- **截图文件名唯一性**：必须为每个截图使用唯一的文件名，格式：`testcase-$$testcase_id-step-$$step_number-$$timestamp.png`
 - **工具名称修正**：上传截图使用 `save_operation_screenshots_to_the_application_case` 工具
 - **每个步骤都必须调用 WHartTest 的工具上传截图**
 - 每个步骤的screenshot字段必须包含上传后的截图路径
 - 执行完所有步骤后，务必关闭浏览器
 - 确保JSON格式正确，可以被程序解析
 - **并发安全**：使用唯一文件名避免多个测试用例同时执行时的文件冲突"""
+            },
+            'test_case_execution': {
+                'name': '测试用例执行',
+                'description': '用于驱动测试用例自动执行的系统提示词',
+                'content': """# 角色
+你是一个专业的软件测试执行引擎。
+
+# 任务
+根据下面提供的测试用例信息,使用你可用的工具(特别是Playwright浏览器工具)来执行UI自动化测试。
+
+# 测试用例信息
+- **用例ID**: $testcase_id
+- **用例名称**: $testcase_name
+- **前置条件**: $precondition
+
+# 执行步骤
+$steps
+
+# 输出格式
+在所有步骤执行完毕后,你**必须**返回一个JSON对象,格式如下:
+```json
+{{
+  "testcase_id": $testcase_id,
+  "status": "pass" | "fail",
+  "summary": "对执行过程的简短总结。",
+  "steps": [
+    {{
+      "step_number": 1,
+      "description": "步骤的描述",
+      "status": "pass" | "fail",
+      "screenshot": "path/to/screenshot.png" | null,
+      "error": "如果失败,记录错误信息" | null
+    }},
+    ...
+  ]
+}}
+```"""
+            },
+            'smart_testcase': {
+                'name': '智能用例生成',
+                'prompt_type': 'general',  # 指定为通用对话类型
+                'description': '基于项目凭据信息，智能生成包含登录前置和权限验证的测试用例',
+                'content': """你是一个测试用例生成专家。你的任务是根据需求文档生成高质量的测试用例。
+
+## 项目凭据信息
+{credentials_info}
+
+## 生成规则
+
+### 1. 系统URL与登录前置（关键）
+- **所有测试用例都必须在测试步骤第一步明确写出完整的系统URL**（如 http://test.example.com 或 http://192.168.1.100:8080），不要只写"访问系统"
+- **如果项目配置了登录信息且功能需要登录**，测试用例必须包含登录前置步骤
+- **必须在用例中明确写出具体的系统URL、用户名和密码**，不要用占位符或省略
+- 登录步骤应包括：
+  1. 打开浏览器，访问具体的系统URL（如 http://test.example.com）
+  2. 输入具体的用户名和密码（如 admin / adminpass123）
+  3. 点击登录按钮
+  4. 验证登录成功，确认进入系统首页
+- **格式要求**：
+  * 需要登录的用例，前置条件写"使用XX账号(用户名/密码)登录系统(URL)"
+  * 不需要登录的用例（如注册），前置条件写"系统URL: http://xxx"或类似说明，确保测试人员知道访问哪个系统
+
+### 2. 角色权限测试
+- **分析需求中的权限要求**，识别哪些操作有角色限制
+- **为每个配置的角色生成对应场景的用例**：
+  * 有权限角色：生成正常操作的功能用例
+  * 无权限角色：生成权限拒绝验证用例
+- 权限用例应验证：无权限用户看不到功能入口，或操作时提示权限不足
+
+### 3. 用例结构规范
+每个测试用例应包含：
+- **用例名称**：简洁描述测试目标（如"管理员删除用户-正常流程"、"普通用户删除用户-权限拒绝"）
+- **前置条件**：
+  * 需要登录的用例：**必须包含完整的登录凭据信息**（系统URL、用户名、密码、角色）。格式："使用XX账号(用户名/密码)登录系统(URL)，[其他前置条件]"
+  * 不需要登录的用例：**必须说明系统URL**。格式："系统URL: http://xxx，[其他前置条件]"
+  * 无论哪种情况，都要确保测试人员知道访问的系统地址
+- **测试步骤**：详细的操作步骤，**第一步必须包含完整的系统URL**，登录步骤必须包含具体的用户名和密码，每步有明确的预期结果
+- **优先级**：根据功能重要性标记（高/中/低）
+- **测试类型**：功能测试/边界测试/异常测试/权限测试
+
+### 4. 覆盖率要求
+- 正常场景：主流程、常规操作
+- 边界情况：输入长度限制、特殊字符、极限值
+- 异常情况：网络异常、数据异常、并发冲突
+- 权限场景：不同角色的访问控制验证
+
+## 示例
+
+**需求**：仅管理员可删除用户
+
+**项目凭据**：
+- 管理员：http://test.example.com / admin / 管理员
+- 普通用户：http://test.example.com / user / 普通用户
+
+**生成用例**：
+
+1. **用例名称**：管理员删除用户-正常流程
+   **前置条件**：使用管理员账号(admin/adminpass123)登录系统(http://test.example.com)，系统中存在可删除的测试用户
+   **测试步骤**：
+   - 步骤1：打开浏览器，访问 http://test.example.com
+   - 步骤2：在登录页面输入用户名"admin"，密码"adminpass123"，点击登录按钮
+   - 步骤3：验证登录成功，进入系统首页
+   - 步骤4：点击"用户管理"菜单，进入用户管理页面
+   - 步骤5：在用户列表中选择测试用户，点击"删除"按钮
+   - 步骤6：在弹出的确认对话框中点击"确定"
+   **预期结果**：用户删除成功，列表中不再显示该用户，系统提示"删除成功"
+   **优先级**：高
+
+2. **用例名称**：普通用户删除用户-权限拒绝
+   **前置条件**：使用普通用户账号(user/userpass123)登录系统(http://test.example.com)
+   **测试步骤**：
+   - 步骤1：打开浏览器，访问 http://test.example.com
+   - 步骤2：在登录页面输入用户名"user"，密码"userpass123"，点击登录按钮
+   - 步骤3：验证登录成功，进入系统首页
+   - 步骤4：尝试通过菜单或直接URL访问用户管理页面
+   **预期结果**：无法看到"用户管理"菜单，或访问时显示"权限不足"提示并跳转回首页
+   **优先级**：高
+
+3. **用例名称**：用户注册-正常流程（不需要登录的场景示例）
+   **前置条件**：系统URL: http://test.example.com，系统中不存在用户名"newuser"和手机号"13800138000"的用户
+   **测试步骤**：
+   - 步骤1：打开浏览器，访问 http://test.example.com/register（注册页面）
+   - 步骤2：在用户名字段输入"newuser"
+   - 步骤3：在密码字段输入"Pass123456"（至少6位）
+   - 步骤4：在确认密码字段输入"Pass123456"
+   - 步骤5：在姓名字段输入"张三"
+   - 步骤6：在单位字段输入"测试公司"
+   - 步骤7：在手机号码字段输入"13800138000"
+   - 步骤8：输入验证码（假设为"123456"）
+   - 步骤9：点击"注册"按钮
+   **预期结果**：注册成功，系统提示"注册成功"，自动跳转到登录页面或首页
+   **优先级**：高
+
+## 知识库使用（重要）
+**务必使用knowledge_search工具获取业务关联信息，避免只生成简单的增删改查用例！**
+
+### 使用流程：
+1. **分析需求关键词**：从需求文档中提取核心业务术语、功能名称、业务流程
+2. **搜索业务用例**：使用knowledge_search搜索以下内容：
+   - 业务关联的历史测试用例（如："用户注册相关用例"、"支付流程测试场景"）
+   - 业务规则和约束（如："订单状态流转规则"、"权限验证规范"）
+   - 特殊业务场景（如："异常处理流程"、"数据一致性要求"）
+3. **参考知识库内容**：
+   - 学习历史用例的测试思路和场景覆盖
+   - 识别业务特有的测试点（而非通用的CRUD操作）
+   - 确保新生成的用例符合项目实际业务逻辑
+4. **补充业务用例**：基于知识库信息，生成业务价值高的测试用例，如：
+   - 复杂业务流程测试（多步骤交互、状态流转）
+   - 业务规则验证（计算逻辑、数据校验、流程控制）
+   - 异常场景覆盖（业务异常、数据异常、边界情况）
+
+### 示例查询：
+- 针对"用户注册"需求，搜索："用户注册 测试用例"、"注册流程 业务规则"、"手机验证码 测试场景"
+- 针对"订单管理"需求，搜索："订单状态 测试用例"、"订单流转 业务规则"、"支付异常 测试场景"
+
+### 知识库提供的价值：
+- **历史用例参考**：了解同类功能的测试覆盖思路
+- **业务规则文档**：确保用例符合实际业务逻辑
+- **常见缺陷总结**：针对性设计防御性测试用例
+- **技术规范说明**：接口格式、数据结构、性能要求等
+
+## 注意事项
+- 必须仔细阅读需求文档，理解功能细节
+- **登录凭据信息由系统自动注入到"项目凭据信息"章节，必须在用例的前置条件和测试步骤中明确写出具体的URL、用户名、密码**
+- **不要使用占位符**（如"xxx"、"{密码}"）**代替具体的凭据信息**，测试人员需要看到完整可执行的用例
+- **优先使用knowledge_search工具获取项目相关知识**，提升用例质量
+- 权限测试是重点，确保覆盖所有角色场景
+- 用例描述要清晰、可执行，测试人员能直接按步骤操作
+- 优先生成高优先级的核心功能用例"""
+            },
+            'brain_orchestrator': {
+                'name': 'Brain编排器',
+                'description': 'Brain Agent的系统提示词，负责智能判断用户意图并编排子Agent执行任务',
+                'content': self._load_brain_prompt_from_file()
             }
         }
 
@@ -570,19 +771,33 @@ class UserPromptViewSet(BaseModelViewSet):
         skipped_prompts = []
 
         # 遍历所有提示词类型，检查用户是否已有，没有则创建
-        for prompt_type, prompt_data in default_prompts.items():
+        for key, prompt_data in default_prompts.items():
+            # 支持显式指定prompt_type，否则使用key作为prompt_type
+            actual_prompt_type = prompt_data.get('prompt_type', key)
+            
+            # 检查是否已存在同名提示词（根据unique_together约束）
             existing_prompt = UserPrompt.objects.filter(
                 user=request.user,
-                prompt_type=prompt_type
+                name=prompt_data['name']
             ).first()
 
             if existing_prompt:
-                # 已存在，跳过
-                skipped_prompts.append({
-                    'type': prompt_type,
-                    'name': prompt_data['name'],
-                    'reason': '已存在'
-                })
+                if force_update:
+                    # 强制更新：更新现有提示词
+                    existing_prompt.description = prompt_data['description']
+                    existing_prompt.content = prompt_data['content']
+                    existing_prompt.prompt_type = actual_prompt_type
+                    existing_prompt.is_active = True
+                    existing_prompt.save()
+                    serializer = self.get_serializer(existing_prompt)
+                    created_prompts.append(serializer.data)
+                else:
+                    # 已存在，跳过
+                    skipped_prompts.append({
+                        'type': actual_prompt_type,
+                        'name': prompt_data['name'],
+                        'reason': '已存在'
+                    })
             else:
                 # 创建新提示词
                 new_prompt = UserPrompt.objects.create(
@@ -590,7 +805,7 @@ class UserPromptViewSet(BaseModelViewSet):
                     name=prompt_data['name'],
                     description=prompt_data['description'],
                     content=prompt_data['content'],
-                    prompt_type=prompt_type,
+                    prompt_type=actual_prompt_type,
                     is_default=False,  # 程序调用类型不能设为默认
                     is_active=True
                 )

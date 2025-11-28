@@ -1,5 +1,5 @@
 # 使用 Python 3.11 官方镜像作为基础镜像
-FROM python:3.11-slim
+FROM docker.m.daocloud.io/library/python:3.11-slim
 
 # 设置工作目录
 WORKDIR /app
@@ -24,11 +24,13 @@ COPY requirements.txt .
 # 使用 uv 安装 Python 依赖
 RUN uv pip install --system -r requirements.txt
 
-# 复制项目文件
-COPY . .
-
-# 复制 supervisord 配置文件
+# 复制supervisord配置
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# 复制MCP服务代码（仅复制必要文件）
+COPY ms_mcp_api.py /app/
+COPY WHartTest_tools.py /app/
+COPY playwright-mcp-config.json /app/
 
 # 创建日志目录
 RUN mkdir -p /var/log/supervisor

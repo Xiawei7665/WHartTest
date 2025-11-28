@@ -89,6 +89,7 @@ INSTALLED_APPS = [
     'knowledge', # Knowledge Base Management App
     'prompts', # 提示词管理应用
     'requirements', # 需求评审管理应用
+    'orchestrator_integration', # 智能编排集成应用
 ]
 
 MIDDLEWARE = [
@@ -320,59 +321,144 @@ SIMPLE_JWT = {
     'USER_ID_CLAIM': 'user_id',                    # 用户ID声明
 }
 
+# 日志输出目录
+LOGS_DIR = BASE_DIR / 'data' / 'logs'
+LOGS_DIR.mkdir(parents=True, exist_ok=True)  # 自动创建日志目录
+
 # Logging configuration
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'format': '[{asctime}] {levelname} {name}:{lineno} - {message}',
             'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
         },
         'simple': {
             'format': '{levelname} {message}',
             'style': '{',
         },
-        'knowledge': {
-            'format': '[{asctime}] {name} - {levelname} - {message}',
+        'detailed': {
+            'format': '[{asctime}] {levelname} {name} {process:d} {thread:d} - {message}',
             'style': '{',
-            'datefmt': '%H:%M:%S',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
         },
     },
     'handlers': {
+        # 控制台输出
         'console': {
-            'level': 'INFO', # 将控制台日志级别设置为 INFO
+            'level': 'DEBUG',
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
         },
-        'knowledge_console': {
+        # 应用总日志文件 - 按日期轮转
+        'app_file': {
             'level': 'INFO',
-            'class': 'logging.StreamHandler',
-            'formatter': 'knowledge',
+            'class': 'logging.handlers.TimedRotatingFileHandler',
+            'filename': str(LOGS_DIR / 'app.log'),
+            'when': 'midnight',
+            'interval': 1,
+            'backupCount': 30,  # 保留30天
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+        },
+        # 错误日志文件 - 只记录ERROR及以上
+        'error_file': {
+            'level': 'ERROR',
+            'class': 'logging.handlers.TimedRotatingFileHandler',
+            'filename': str(LOGS_DIR / 'error.log'),
+            'when': 'midnight',
+            'interval': 1,
+            'backupCount': 60,  # 错误日志保留60天
+            'formatter': 'detailed',
+            'encoding': 'utf-8',
+        },
+        # Requirements应用专用日志
+        'requirements_file': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.TimedRotatingFileHandler',
+            'filename': str(LOGS_DIR / 'requirements.log'),
+            'when': 'midnight',
+            'interval': 1,
+            'backupCount': 30,
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+        },
+        # Celery任务日志
+        'celery_file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.TimedRotatingFileHandler',
+            'filename': str(LOGS_DIR / 'celery.log'),
+            'when': 'midnight',
+            'interval': 1,
+            'backupCount': 30,
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
         },
     },
     'loggers': {
+        # Django核心日志
         'django': {
-            'handlers': ['console'],
+            'handlers': ['console', 'app_file', 'error_file'],
             'level': 'INFO',
             'propagate': False,
         },
-        'mcp_tools': { # 为 mcp_tools 应用添加 logger
-            'handlers': ['console'],
-            'level': 'INFO', # 设置为 INFO 级别
+        # Requirements应用日志
+        'requirements': {
+            'handlers': ['console', 'requirements_file', 'error_file'],
+            'level': 'DEBUG',
             'propagate': False,
         },
-        'knowledge': { # 为 knowledge 应用添加 logger
-            'handlers': ['knowledge_console'],
-            'level': 'INFO', # 设置为 INFO 级别
+        'requirements.services': {
+            'handlers': ['console', 'requirements_file', 'error_file'],
+            'level': 'DEBUG',
             'propagate': False,
         },
-        'knowledge.services': { # 为 knowledge.services 模块添加专门的 logger
-            'handlers': ['knowledge_console'],
+        'requirements.tasks': {
+            'handlers': ['console', 'celery_file', 'error_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        # Celery日志
+        'celery': {
+            'handlers': ['console', 'celery_file', 'error_file'],
             'level': 'INFO',
             'propagate': False,
         },
-        # 可以根据需要添加其他应用的 logger
+        # MCP工具日志
+        'mcp_tools': {
+            'handlers': ['console', 'app_file', 'error_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Knowledge应用日志
+        'knowledge': {
+            'handlers': ['console', 'app_file', 'error_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'knowledge.services': {
+            'handlers': ['console', 'app_file', 'error_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Testcases应用日志
+        'testcases': {
+            'handlers': ['console', 'app_file', 'error_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'testcases.views': {
+            'handlers': ['console', 'app_file', 'error_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'testcases.serializers': {
+            'handlers': ['console', 'app_file', 'error_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
     },
 }
 
@@ -380,6 +466,9 @@ LOGGING = {
 # Celery使用Redis作为broker和backend
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
+
+# Celery 6.0+ 启动时重试连接
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 # Celery时区设置
 CELERY_TIMEZONE = TIME_ZONE

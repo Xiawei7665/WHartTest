@@ -34,10 +34,33 @@
         </a-select>
       </a-form-item>
       <a-form-item field="name" label="模型名称" required>
-        <a-input v-model="formData.name" placeholder="请输入模型名称" />
+        <a-auto-complete
+          v-model="formData.name"
+          :data="modelOptions"
+          :loading="loadingModels"
+          placeholder="请输入或选择模型名称"
+          allow-clear
+          @focus="handleModelInputFocus"
+        >
+          <template #suffix>
+            <a-button
+              type="text"
+              size="mini"
+              :loading="loadingModels"
+              @click="fetchAvailableModels"
+            >
+              <icon-refresh v-if="!loadingModels" />
+            </a-button>
+          </template>
+        </a-auto-complete>
+        <template #extra>
+          <div class="text-xs text-gray-500">
+            可直接输入或点击刷新按钮从 API 获取模型列表
+          </div>
+        </template>
       </a-form-item>
       <a-form-item field="api_url" label="API URL" required>
-        <a-input v-model="formData.api_url" placeholder="请输入 API URL" />
+        <a-input v-model="formData.api_url" placeholder="例如: https://api.openai.com/v1" />
       </a-form-item>
       <a-form-item field="api_key" label="API Key" :required="!isEditing">
         <a-input-password
@@ -47,6 +70,16 @@
         <template #extra v-if="isEditing">
           <div class="text-xs text-gray-500">留空表示不修改 API Key。</div>
         </template>
+      </a-form-item>
+      <a-form-item>
+        <a-button 
+          @click="testLlmModel"
+          :loading="testingModel"
+          type="outline"
+        >
+          <template #icon><icon-refresh /></template>
+          测试模型
+        </a-button>
       </a-form-item>
       <a-form-item field="system_prompt" label="系统提示词">
         <a-textarea
@@ -58,6 +91,12 @@
         />
         <template #extra>
           <div class="text-xs text-gray-500">用于指导AI助手的行为和回答风格。</div>
+        </template>
+      </a-form-item>
+      <a-form-item field="supports_vision" label="支持图片输入">
+        <a-switch v-model="formData.supports_vision" />
+        <template #extra>
+          <div class="text-xs text-gray-500">模型是否支持图片/多模态输入（如GPT-4V、Qwen-VL、Gemini Vision等）。</div>
         </template>
       </a-form-item>
       <a-form-item field="is_active" label="激活状态">
@@ -82,10 +121,14 @@ import {
   Switch as ASwitch,
   Select as ASelect,
   Option as AOption,
+  AutoComplete as AAutoComplete,
+  Button as AButton,
   Message,
   type FormInstance,
   type FieldRule,
 } from '@arco-design/web-vue';
+import { IconRefresh } from '@arco-design/web-vue/es/icon';
+import axios from 'axios';
 import type { LlmConfig, CreateLlmConfigRequest, PartialUpdateLlmConfigRequest } from '@/features/langgraph/types/llmConfig';
 import { getProviders, type ProviderOption } from '@/features/langgraph/services/llmConfigService';
 
@@ -109,6 +152,9 @@ const emit = defineEmits<{
 const formRef = ref<FormInstance | null>(null);
 const providerOptions = ref<ProviderOption[]>([]);
 const loadingProviders = ref(false);
+const modelOptions = ref<string[]>([]);
+const loadingModels = ref(false);
+const testingModel = ref(false);
 const defaultFormData: CreateLlmConfigRequest = {
   config_name: '',
   provider: '',
@@ -116,6 +162,7 @@ const defaultFormData: CreateLlmConfigRequest = {
   api_url: '',
   api_key: '',
   system_prompt: '',
+  supports_vision: false,
   is_active: false,
 };
 const formData = ref<CreateLlmConfigRequest>({ ...defaultFormData });
@@ -166,6 +213,7 @@ watch(
           api_url: props.configData.api_url,
           api_key: '', // 编辑时不显示旧 Key，留空表示不修改
           system_prompt: props.configData.system_prompt || '', // 填充系统提示词
+          supports_vision: props.configData.supports_vision || false, // 填充多模态支持
           is_active: props.configData.is_active,
         };
       } else {
@@ -206,6 +254,9 @@ const handleSubmit = async () => {
     if (formData.value.system_prompt !== undefined) { // 包含系统提示词（可以为空字符串）
       partialData.system_prompt = formData.value.system_prompt;
     }
+    if (formData.value.supports_vision !== undefined) { // 包含多模态支持
+      partialData.supports_vision = formData.value.supports_vision;
+    }
     submitData = partialData;
     emit('submit', submitData, props.configData.id);
   } else {
@@ -228,12 +279,141 @@ const loadProviders = async () => {
   try {
     const response = await getProviders();
     if (response.status === 'success' && response.data) {
-      providerOptions.value = response.data.choices;
+      // 对供应商列表排序,将 OpenAI Compatible 放在第一位
+      const providers = response.data.choices;
+      const compatibleIndex = providers.findIndex(p => p.value === 'openai_compatible');
+      
+      if (compatibleIndex > -1) {
+        const [compatible] = providers.splice(compatibleIndex, 1);
+        providerOptions.value = [compatible, ...providers];
+      } else {
+        providerOptions.value = providers;
+      }
     }
   } catch (error) {
     console.error('Failed to load providers:', error);
   } finally {
     loadingProviders.value = false;
+  }
+};
+
+// 从 API 获取可用模型列表
+const fetchAvailableModels = async () => {
+  if (!formData.value.api_url) {
+    Message.warning('请先填写 API URL');
+    return;
+  }
+
+  if (!formData.value.api_key) {
+    Message.warning('请先填写 API Key');
+    return;
+  }
+
+  loadingModels.value = true;
+  try {
+    // 构造 models API 端点
+    const apiUrl = formData.value.api_url.replace(/\/$/, ''); // 移除末尾斜杠
+    const modelsEndpoint = `${apiUrl}/models`;
+
+    const response = await axios.get(modelsEndpoint, {
+      headers: {
+        'Authorization': `Bearer ${formData.value.api_key}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 10000, // 10秒超时
+    });
+
+    // OpenAI API 格式: { data: [{ id: 'model-name' }] }
+    if (response.data && response.data.data) {
+      const models = response.data.data.map((model: any) => model.id);
+      modelOptions.value = models;
+      if (models.length > 0) {
+        Message.success(`成功获取 ${models.length} 个模型`);
+      } else {
+        Message.warning('未找到可用模型');
+      }
+    } else {
+      Message.warning('API 返回格式不符合预期');
+      modelOptions.value = [];
+    }
+  } catch (error: any) {
+    console.error('获取模型列表失败:', error);
+    const errorMsg = error.response?.data?.error?.message 
+      || error.response?.statusText 
+      || error.message 
+      || '获取模型列表失败';
+    Message.error(`获取模型列表失败: ${errorMsg}`);
+    modelOptions.value = [];
+  } finally {
+    loadingModels.value = false;
+  }
+};
+
+// 测试 LLM 模型真实可用性
+const testLlmModel = async () => {
+  // 验证必要字段
+  if (!formData.value.api_url) {
+    Message.warning('请先填写 API URL');
+    return;
+  }
+  if (!formData.value.api_key) {
+    Message.warning('请先填写 API Key');
+    return;
+  }
+  if (!formData.value.name) {
+    Message.warning('请先填写模型名称');
+    return;
+  }
+
+  testingModel.value = true;
+  try {
+    // 构造 chat completions API 端点
+    const apiUrl = formData.value.api_url.replace(/\/$/, '');
+    const chatEndpoint = `${apiUrl}/chat/completions`;
+
+    // 发送测试请求
+    const response = await axios.post(chatEndpoint, {
+      model: formData.value.name,
+      messages: [
+        { role: 'user', content: 'Hi, this is a test message.' }
+      ],
+      max_tokens: 10
+    }, {
+      headers: {
+        'Authorization': `Bearer ${formData.value.api_key}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 30000, // 30秒超时
+    });
+
+    // 验证返回数据包含有效响应
+    if (response.data && response.data.choices && response.data.choices.length > 0) {
+      const content = response.data.choices[0].message?.content;
+      if (content !== undefined) {
+        Message.success('模型测试成功！服务运行正常');
+      } else {
+        Message.warning('模型响应成功但数据格式异常');
+      }
+    } else {
+      Message.warning('模型响应成功但未返回有效数据');
+    }
+  } catch (error: any) {
+    console.error('模型测试失败:', error);
+    const errorMsg = error.response?.data?.error?.message 
+      || error.response?.statusText 
+      || error.message 
+      || '模型测试失败';
+    Message.error(`模型测试失败: ${errorMsg}`);
+  } finally {
+    testingModel.value = false;
+  }
+};
+
+// 处理模型输入框聚焦
+const handleModelInputFocus = () => {
+  // 如果有 API URL 和 API Key,且模型列表为空,自动获取
+  if (formData.value.api_url && formData.value.api_key && modelOptions.value.length === 0) {
+    fetchAvailableModels();
   }
 };
 

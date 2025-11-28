@@ -18,6 +18,16 @@ export interface ProjectMember {
   joined_at: string;
 }
 
+// 项目凭据接口
+export interface ProjectCredential {
+  id?: number;
+  system_url: string;
+  username: string;
+  password?: string;
+  user_role: string;
+  created_at?: string;
+}
+
 // 项目类型定义
 export interface Project {
   id: number;
@@ -28,18 +38,21 @@ export interface Project {
   created_at: string;
   updated_at: string;
   members?: ProjectMember[];
+  credentials?: ProjectCredential[];
 }
 
 // 创建项目请求参数
 export interface CreateProjectRequest {
   name: string;
   description: string;
+  credentials?: ProjectCredential[];
 }
 
 // 更新项目请求参数
 export interface UpdateProjectRequest {
   name?: string;
   description?: string;
+  credentials?: ProjectCredential[];
 }
 
 // 分页参数

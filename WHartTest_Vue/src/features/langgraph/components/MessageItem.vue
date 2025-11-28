@@ -7,6 +7,15 @@
           </div>
         </div>
     <div class="message-content">
+      <!-- 图片显示（在消息气泡之前） -->
+      <div v-if="message.imageDataUrl || message.imageBase64" class="message-image-container">
+        <img 
+          :src="message.imageDataUrl || `data:image/jpeg;base64,${message.imageBase64}`" 
+          alt="上传的图片" 
+          class="message-image" 
+        />
+      </div>
+      
       <div class="message-bubble">
         <div v-if="message.isLoading" class="typing-indicator">
           <span></span>
@@ -14,6 +23,9 @@
           <span></span>
         </div>
         <div v-else-if="message.messageType === 'tool'" class="tool-message-content">
+          <div v-if="message.toolName" class="tool-header">
+            🔧 {{ message.toolName }}
+          </div>
           <div
             :class="['tool-content', { 'collapsed': !message.isExpanded && shouldCollapse }]"
             :key="message.content"
@@ -29,6 +41,20 @@
           </div>
         </div>
 
+        <!-- 🎨 思考过程消息（可折叠） -->
+        <div v-else-if="message.isThinkingProcess" class="thinking-process-content">
+          <div class="thinking-header" @click="$emit('toggle-expand', message)">
+            <span class="thinking-label">思考过程</span>
+          </div>
+          <div
+            v-show="message.isThinkingExpanded"
+            :key="message.content"
+            class="thinking-body"
+            v-html="formattedContent"
+          ></div>
+        </div>
+
+        <!-- 普通AI消息 -->
         <div
           v-else
           :key="message.content"
@@ -67,8 +93,13 @@ interface ChatMessage {
   time: string;
   isLoading?: boolean;
   messageType?: 'human' | 'ai' | 'tool' | 'system'; // 🆕 添加 system 类型
+  toolName?: string; // 工具名称
   isExpanded?: boolean;
   isStreaming?: boolean; // 新增：标识是否正在流式输出
+  imageBase64?: string; // 🆕 消息携带的图片（Base64）
+  imageDataUrl?: string; // 🆕 完整的图片Data URL
+  isThinkingProcess?: boolean; // 🎨 是否是思考过程
+  isThinkingExpanded?: boolean; // 🎨 思考过程是否展开
 }
 
 interface Props {
@@ -264,90 +295,29 @@ const handleStreamingMarkdown = (content: string) => {
 };
 
 // 检查代码内容是否看起来完整（根据txt文件中的实际代码格式优化）
-const isCodeContentComplete = (codeContent: string, language: string): boolean => {
-  const trimmedContent = codeContent.trim();
 
-  // 如果内容为空，肯定不完整
-  if (!trimmedContent) {
-    return false;
-  }
-
-  // 对于Python代码（txt文件中的主要格式）
-  if (language === 'python' || language === 'py') {
-    // 检查是否有完整的函数定义
-    if (trimmedContent.includes('def ')) {
-      // 检查函数是否有完整的结构：def name(): 和缩进的内容
-      const lines = trimmedContent.split('\n');
-      let hasDefLine = false;
-      let hasIndentedContent = false;
-
-      for (const line of lines) {
-        if (line.trim().startsWith('def ') && line.includes(':')) {
-          hasDefLine = true;
-        }
-        if (hasDefLine && line.startsWith('    ') && line.trim()) {
-          hasIndentedContent = true;
-        }
-      }
-
-      // 如果有函数定义和缩进内容，认为相对完整
-      return hasDefLine && hasIndentedContent;
-    }
-
-    // 对于简单的Python代码，检查是否有基本的语法结构
-    const lines = trimmedContent.split('\n');
-    if (lines.length > 1) {
-      // 检查最后一行是否看起来是完整的
-      const lastLine = lines[lines.length - 1].trim();
-      // 如果最后一行不是明显的不完整状态，认为可能完整
-      return !lastLine.endsWith(',') && !lastLine.endsWith('\\') && lastLine.length > 0;
-    }
-  }
-
-  // 对于JSON格式，检查是否有完整的结构
-  if (language === 'json') {
-    try {
-      // 检查是否以{开头}结尾，或者以[开头]结尾
-      if ((trimmedContent.startsWith('{') && trimmedContent.endsWith('}')) ||
-          (trimmedContent.startsWith('[') && trimmedContent.endsWith(']'))) {
-        JSON.parse(trimmedContent);
-        return true;
-      }
-    } catch (e) {
-      // JSON解析失败，可能不完整
-      return false;
-    }
-  }
-
-  // 对于其他语言，基于txt文件的实际情况进行判断
-  // 如果内容有多行且不以明显的不完整标记结尾，认为可能完整
-  const lines = trimmedContent.split('\n');
-  if (lines.length > 2) {
-    const lastLine = lines[lines.length - 1].trim();
-    const incompleteEndings = [',', '+', '-', '*', '/', '=', '&&', '||', '\\'];
-    const endsWithIncomplete = incompleteEndings.some(ending => lastLine.endsWith(ending));
-
-    return !endsWithIncomplete && lastLine.length > 0;
-  }
-
-  // 默认情况下，对于流式输出，我们倾向于认为内容不完整，以确保正确的代码块渲染
-  return false;
-};
 
 // 格式化工具消息
 const formatToolMessage = (content: string) => {
   try {
-    // 尝试解析JSON
+    // 先尝试解析为 JSON
     const jsonData = JSON.parse(content);
-    // 如果解析成功，格式化为带代码块的JSON
     const formattedJson = JSON.stringify(jsonData, null, 2);
     return `\`\`\`json\n${formattedJson}\n\`\`\``;
-  } catch (error) {
-    // 如果不是有效的JSON，检查是否已经是代码块格式
+  } catch {
+    // 如果不是 JSON,检查是否已经包含代码块标记
     if (content.includes('```')) {
       return content;
     }
-    // 否则包装为代码块
+    
+    // 检测是否为纯数字或简单文本(少于 50 字符且无换行)
+    const trimmedContent = content.trim();
+    if (trimmedContent.length < 50 && !trimmedContent.includes('\n')) {
+      // 简单文本直接显示,无需代码块
+      return trimmedContent;
+    }
+    
+    // 其他情况包装为代码块
     return `\`\`\`\n${content}\n\`\`\``;
   }
 };
@@ -413,6 +383,27 @@ const formatToolMessage = (content: string) => {
   flex-direction: column;
   min-width: 0; /* 允许flex子项收缩 */
   flex: 1; /* 占用剩余空间 */
+}
+
+/* 图片容器样式 */
+.message-image-container {
+  margin-bottom: 8px;
+  max-width: 300px;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.message-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.message-image:hover {
+  transform: scale(1.02);
 }
 
 .message-bubble {
@@ -493,6 +484,15 @@ const formatToolMessage = (content: string) => {
 /* 工具消息折叠展开样式 */
 .tool-message-content {
   position: relative;
+}
+
+.tool-header {
+  font-size: 0.9em;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e6f4ea;
 }
 
 .tool-content {
@@ -773,5 +773,40 @@ const formatToolMessage = (content: string) => {
   word-break: break-all;
   white-space: pre-wrap;
   overflow-wrap: break-word;
+}
+
+/* 🎨 思考过程样式 */
+.thinking-process-content {
+  width: 100%;
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: #f7f8fa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  user-select: none;
+}
+
+.thinking-header:hover {
+  background-color: #ebeef5;
+}
+
+.thinking-label {
+  font-weight: 500;
+  color: #4e5969;
+  flex: 1;
+}
+
+.thinking-body {
+  margin-top: 8px;
+  padding: 12px;
+  background-color: #f9fafb;
+  border-radius: 8px;
+  border-left: 3px solid #165dff;
 }
 </style>

@@ -46,6 +46,7 @@ out/
 
 # Dependencies (handled by subdirectories, but backup)
 node_modules/
+nltk_data/
 
 # Python cache (handled by Django .gitignore, but backup)
 __pycache__/
@@ -63,3 +64,5 @@ docs/_build/
 docs/.vitepress/cache/
 # Playwright截图目录
 playwright-screenshots/
+WHartTest_Django/chat_history.sqlite-shm
+WHartTest_Django/chat_history.sqlite-wal

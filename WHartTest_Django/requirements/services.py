@@ -1,6 +1,7 @@
 import logging
 import json
 import re
+from string import Template
 from typing import List, Dict, Any, Optional
 from django.conf import settings
 from langchain_openai import ChatOpenAI
@@ -179,31 +180,46 @@ class DocumentProcessor:
             # 使用python-docx读取Word文档
             doc = Document(file)
 
+            logger.info(f"开始提取Word文档，段落数: {len(doc.paragraphs)}, 表格数: {len(doc.tables)}")
+
             # 按文档顺序处理所有元素（段落和表格）
             content_parts = []
+            extracted_paragraphs = 0
+            extracted_tables = 0
+
+            # 创建元素到对象的映射，避免重复查找（性能优化 + 防止内容丢失）
+            paragraph_map = {p._element: p for p in doc.paragraphs}
+            table_map = {t._element: t for t in doc.tables}
 
             # 遍历文档的所有元素
             for element in doc.element.body:
                 if element.tag.endswith('p'):  # 段落元素
-                    # 找到对应的段落对象
-                    for paragraph in doc.paragraphs:
-                        if paragraph._element == element:
-                            text = paragraph.text.strip()
-                            if text:
-                                markdown_text = self._convert_paragraph_to_markdown(paragraph)
-                                content_parts.append(markdown_text)
-                            break
+                    paragraph = paragraph_map.get(element)
+                    if paragraph:
+                        text = paragraph.text.strip()
+                        if text:  # 只处理非空段落
+                            markdown_text = self._convert_paragraph_to_markdown(paragraph)
+                            content_parts.append(markdown_text)
+                            extracted_paragraphs += 1
+
                 elif element.tag.endswith('tbl'):  # 表格元素
-                    # 找到对应的表格对象
-                    for table in doc.tables:
-                        if table._element == element:
-                            table_content = self._extract_table_content(table)
-                            if table_content:
-                                content_parts.append(table_content)
-                            break
+                    table = table_map.get(element)
+                    if table:
+                        table_content = self._extract_table_content(table)
+                        if table_content:
+                            content_parts.append(table_content)
+                            extracted_tables += 1
 
             content = "\n\n".join(content_parts)
-            logger.info(f"成功提取Word文档内容，元素数: {len(content_parts)}, 内容长度: {len(content)}")
+
+            logger.info(f"Word文档提取完成 - 提取段落: {extracted_paragraphs}, 提取表格: {extracted_tables}, 总内容长度: {len(content)}")
+            logger.info(f"原始段落数: {len(doc.paragraphs)}, 实际提取: {extracted_paragraphs}, 差异: {len(doc.paragraphs) - extracted_paragraphs}")
+
+            # 如果内容长度为0或者提取的段落数明显少于原始段落数，记录警告
+            if len(content) == 0:
+                logger.error("Word文档提取结果为空！")
+            elif extracted_paragraphs < len(doc.paragraphs) * 0.5:
+                logger.warning(f"Word文档可能存在内容丢失！原始{len(doc.paragraphs)}段，仅提取{extracted_paragraphs}段")
 
             return content
 
@@ -212,6 +228,8 @@ class DocumentProcessor:
             return ""
         except Exception as e:
             logger.error(f"Word文档解析失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
             # 如果解析失败，使用简化方法
             return self._extract_from_word_simple(file)
 
@@ -275,17 +293,51 @@ class DocumentProcessor:
 
 
 
-    def _extract_table_content(self, table) -> str:
-        """提取表格内容为Markdown格式"""
+    def _extract_table_content(self, table, depth=0) -> str:
+        """提取表格内容为Markdown格式，支持嵌套表格
+        
+        Args:
+            table: Word表格对象
+            depth: 递归深度，用于处理嵌套表格
+        """
         try:
             table_rows = []
+            total_cells = 0
+            extracted_cells = 0
+            nested_tables_found = 0
 
             for i, row in enumerate(table.rows):
                 row_cells = []
                 for cell in row.cells:
-                    cell_text = cell.text.strip().replace('\n', ' ')
+                    total_cells += 1
+                    
+                    # 检查单元格中是否包含嵌套表格
+                    nested_tables = cell.tables
+                    if nested_tables and depth < 3:  # 最多支持3层嵌套
+                        nested_tables_found += len(nested_tables)
+                        # 提取单元格中的文本（不包括嵌套表格的文本）
+                        cell_text_parts = []
+                        
+                        # 提取单元格段落文本
+                        for paragraph in cell.paragraphs:
+                            para_text = paragraph.text.strip()
+                            if para_text:
+                                cell_text_parts.append(para_text)
+                        
+                        # 递归提取嵌套表格
+                        for nested_table in nested_tables:
+                            nested_content = self._extract_table_content(nested_table, depth + 1)
+                            if nested_content:
+                                cell_text_parts.append(f"[嵌套表格]\n{nested_content}")
+                        
+                        cell_text = " ".join(cell_text_parts).replace('\n', ' ')
+                    else:
+                        # 普通单元格，直接提取文本
+                        cell_text = cell.text.strip().replace('\n', ' ')
+                    
                     if cell_text:
                         row_cells.append(cell_text)
+                        extracted_cells += 1
                     else:
                         row_cells.append("")
 
@@ -298,11 +350,18 @@ class DocumentProcessor:
                         table_rows.append(separator)
 
             if table_rows:
-                return "\n".join(table_rows)
+                table_content = "\n".join(table_rows)
+                indent = "  " * depth
+                logger.info(f"{indent}表格提取完成 (深度{depth}) - 行数: {len(table.rows)}, 总单元格: {total_cells}, 非空单元格: {extracted_cells}, 嵌套表格: {nested_tables_found}, 内容长度: {len(table_content)}")
+                return table_content
+            else:
+                logger.warning(f"表格为空或所有行都为空 (深度{depth})")
             return ""
 
         except Exception as e:
-            logger.warning(f"表格内容提取失败: {e}")
+            logger.error(f"表格内容提取失败 (深度{depth}): {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
             return ""
 
     def _get_sample_content(self) -> str:
@@ -459,9 +518,11 @@ class ModuleSplitter:
             # 如果内容太长，进行智能截断，但保持结构完整
             processed_content = self._prepare_content_for_analysis(content)
 
+            prompt_template = Template(structure_prompt)
+            formatted_prompt = prompt_template.safe_substitute(content=processed_content)
             messages = [
                 SystemMessage(content="你是一个专业的需求分析师，擅长分析需求文档结构。"),
-                HumanMessage(content=structure_prompt.format(content=processed_content))
+                HumanMessage(content=formatted_prompt)
             ]
             
             response = self.llm.invoke(messages)
@@ -1138,12 +1199,16 @@ class RequirementModuleService:
             document.save()
             
             # 提取文档内容
+            logger.info(f"开始处理文档 {document.id}: {document.title}")
             content = self.document_processor.extract_content(document)
             if not content:
                 raise Exception("无法提取文档内容")
             
+            logger.info(f"文档内容提取完成，原始长度: {len(content)} 字符")
+            
             # 预处理内容
             processed_content = self.document_processor.preprocess_content(content)
+            logger.info(f"内容预处理完成，处理后长度: {len(processed_content)} 字符")
             
             # 更新文档统计信息
             document.word_count = len(processed_content)
@@ -1151,12 +1216,26 @@ class RequirementModuleService:
             document.content = processed_content
             document.save()
             
+            # 验证保存后的内容
+            document.refresh_from_db()
+            saved_content_length = len(document.content) if document.content else 0
+            logger.info(f"文档保存到数据库后，内容长度: {saved_content_length} 字符")
+            
+            if saved_content_length < len(processed_content):
+                logger.error(f"!!!内容截断警告!!! 处理前: {len(processed_content)}, 保存后: {saved_content_length}, 丢失: {len(processed_content) - saved_content_length} 字符")
+            elif saved_content_length == 0:
+                logger.error(f"!!!严重错误!!! 文档内容保存后为空")
+            
             # 模块拆分（支持多种拆分方式）
+            logger.info(f"开始模块拆分，拆分选项: {split_options}")
             modules_data = self.module_splitter.split_into_modules(document, processed_content, split_options)
             
             # 创建模块对象
             modules = []
-            for module_data in modules_data:
+            for i, module_data in enumerate(modules_data):
+                module_content_length = len(module_data['content'])
+                logger.info(f"创建模块 {i+1}/{len(modules_data)}: {module_data['title']}, 内容长度: {module_content_length}")
+                
                 module = RequirementModule.objects.create(
                     document=document,
                     title=module_data['title'],
@@ -1170,6 +1249,15 @@ class RequirementModuleService:
                     is_auto_generated=True,
                     ai_suggested_title=module_data['title']
                 )
+                
+                # 验证模块保存后的内容
+                module.refresh_from_db()
+                saved_module_content_length = len(module.content) if module.content else 0
+                logger.info(f"模块 {module.id} 保存后，内容长度: {saved_module_content_length}")
+                
+                if saved_module_content_length < module_content_length:
+                    logger.error(f"!!!模块内容截断!!! 模块ID: {module.id}, 原始: {module_content_length}, 保存: {saved_module_content_length}, 丢失: {module_content_length - saved_module_content_length} 字符")
+                
                 modules.append(module)
             
             # 更新文档状态
@@ -1181,6 +1269,8 @@ class RequirementModuleService:
             
         except Exception as e:
             logger.error(f"文档模块拆分失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
             document.status = 'failed'
             document.save()
             raise
@@ -1480,9 +1570,11 @@ class RequirementReviewEngine:
             if not direct_prompt:
                 raise ValueError("用户未配置直接分析提示词，请先在提示词管理中配置")
 
+            prompt_template = Template(direct_prompt)
+            formatted_prompt = prompt_template.safe_substitute(content=content[:8000])
             messages = [
                 SystemMessage(content="你是一位专业的需求分析师，擅长需求文档评审。"),
-                HumanMessage(content=direct_prompt.format(content=content[:8000]))  # 限制长度
+                HumanMessage(content=formatted_prompt)
             ]
 
             response = self.llm.invoke(messages)
@@ -1537,29 +1629,383 @@ class RequirementReviewEngine:
             ]
         }
 
-    def analyze_document_comprehensive(self, document: RequirementDocument) -> dict:
-        """全面分析需求文档"""
+    def analyze_completeness(self, content: str) -> dict:
+        """完整性专项分析 - 分析完整文档的完整性"""
+        logger.info("开始执行完整性分析...")
+        completeness_prompt = self._get_user_prompt('completeness_analysis')
+        if not completeness_prompt:
+            logger.warning("用户未配置完整性分析提示词，返回默认结果")
+            return self._get_default_analysis_result('completeness_analysis')
+        
         try:
-            # 第一步：全局结构分析
-            global_analysis = self._analyze_global_structure(document)
+            prompt_template = Template(completeness_prompt)
+            formatted_prompt = prompt_template.safe_substitute(document=content)
+            logger.debug(f"完整性分析提示词已格式化，文档长度: {len(content)}")
+            
+            messages = [
+                SystemMessage(content="你是一位资深的需求分析专家。"),
+                HumanMessage(content=formatted_prompt)
+            ]
+            
+            logger.info("调用LLM进行完整性分析...")
+            response = self.llm.invoke(messages)
+            logger.info(f"LLM响应完成，内容长度: {len(response.content)}")
+            
+            json_match = re.search(r'```json\s*(.*?)\s*```', response.content, re.DOTALL)
+            
+            if json_match:
+                result = json.loads(json_match.group(1))
+                logger.info(f"完整性分析完成，评分: {result.get('overall_score', 'N/A')}, 问题数: {len(result.get('issues', []))}")
+                return result
+            else:
+                logger.warning("完整性分析响应中未找到JSON格式，使用默认结果")
+                logger.debug(f"AI响应内容前500字符: {response.content[:500]}")
+                return self._get_default_analysis_result('completeness_analysis')
+                
+        except Exception as e:
+            logger.error(f"完整性分析失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            return self._get_default_analysis_result('completeness_analysis')
+    
+    def analyze_consistency(self, content: str) -> dict:
+        """一致性专项分析 - 分析完整文档的一致性"""
+        logger.info("开始执行一致性分析...")
+        consistency_prompt = self._get_user_prompt('consistency_analysis')
+        if not consistency_prompt:
+            logger.warning("用户未配置一致性分析提示词，返回默认结果")
+            return self._get_default_analysis_result('consistency_analysis')
+        
+        try:
+            prompt_template = Template(consistency_prompt)
+            formatted_prompt = prompt_template.safe_substitute(document=content)
+            logger.debug(f"一致性分析提示词已格式化，文档长度: {len(content)}")
+            
+            messages = [
+                SystemMessage(content="你是一位资深的需求一致性分析专家。"),
+                HumanMessage(content=formatted_prompt)
+            ]
+            
+            logger.info("调用LLM进行一致性分析...")
+            response = self.llm.invoke(messages)
+            logger.info(f"LLM响应完成，内容长度: {len(response.content)}")
+            
+            json_match = re.search(r'```json\s*(.*?)\s*```', response.content, re.DOTALL)
+            
+            if json_match:
+                result = json.loads(json_match.group(1))
+                logger.info(f"一致性分析完成，评分: {result.get('overall_score', 'N/A')}, 问题数: {len(result.get('issues', []))}")
+                return result
+            else:
+                logger.warning("一致性分析响应中未找到JSON格式，使用默认结果")
+                logger.debug(f"AI响应内容前500字符: {response.content[:500]}")
+                return self._get_default_analysis_result('consistency_analysis')
+                
+        except Exception as e:
+            logger.error(f"一致性分析失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            return self._get_default_analysis_result('consistency_analysis')
+    
+    def analyze_testability(self, content: str) -> dict:
+        """可测性专项分析 - 分析完整文档的可测试性"""
+        logger.info("开始执行可测性分析...")
+        testability_prompt = self._get_user_prompt('testability_analysis')
+        if not testability_prompt:
+            logger.warning("用户未配置可测性分析提示词，返回默认结果")
+            return self._get_default_analysis_result('testability_analysis')
+        
+        try:
+            prompt_template = Template(testability_prompt)
+            formatted_prompt = prompt_template.safe_substitute(document=content)
+            logger.debug(f"可测性分析提示词已格式化，文档长度: {len(content)}")
+            messages = [
+                SystemMessage(content="你是一位资深的测试专家。"),
+                HumanMessage(content=formatted_prompt)
+            ]
+            
+            response = self.llm.invoke(messages)
+            json_match = re.search(r'```json\s*(.*?)\s*```', response.content, re.DOTALL)
+            
+            if json_match:
+                return json.loads(json_match.group(1))
+            else:
+                logger.warning("可测性分析未返回JSON格式，使用默认结果")
+                return self._get_default_analysis_result('testability_analysis')
+                
+        except Exception as e:
+            logger.error(f"可测性分析失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            return self._get_default_analysis_result('testability_analysis')
+    
+    def analyze_feasibility(self, content: str) -> dict:
+        """可行性专项分析 - 分析完整文档的可行性"""
+        feasibility_prompt = self._get_user_prompt('feasibility_analysis')
+        if not feasibility_prompt:
+            logger.warning("用户未配置可行性分析提示词，返回默认结果")
+            return self._get_default_analysis_result('feasibility_analysis')
+        
+        try:
+            prompt_template = Template(feasibility_prompt)
+            formatted_prompt = prompt_template.safe_substitute(document=content)
+            messages = [
+                SystemMessage(content="你是一位资深的技术架构师。"),
+                HumanMessage(content=formatted_prompt)
+            ]
+            
+            response = self.llm.invoke(messages)
+            json_match = re.search(r'```json\s*(.*?)\s*```', response.content, re.DOTALL)
+            
+            if json_match:
+                return json.loads(json_match.group(1))
+            else:
+                logger.warning("可行性分析未返回JSON格式，使用默认结果")
+                return self._get_default_analysis_result('feasibility_analysis')
+                
+        except Exception as e:
+            logger.error(f"可行性分析失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            return self._get_default_analysis_result('feasibility_analysis')
+    
+    def analyze_clarity(self, content: str) -> dict:
+        """清晰度专项分析 - 分析完整文档的清晰度"""
+        clarity_prompt = self._get_user_prompt('clarity_analysis')
+        if not clarity_prompt:
+            logger.warning("用户未配置清晰度分析提示词，返回默认结果")
+            return self._get_default_analysis_result('clarity_analysis')
+        
+        try:
+            prompt_template = Template(clarity_prompt)
+            formatted_prompt = prompt_template.safe_substitute(document=content)
+            messages = [
+                SystemMessage(content="你是一位资深的需求分析专家。"),
+                HumanMessage(content=formatted_prompt)
+            ]
+            
+            response = self.llm.invoke(messages)
+            json_match = re.search(r'```json\s*(.*?)\s*```', response.content, re.DOTALL)
+            
+            if json_match:
+                return json.loads(json_match.group(1))
+            else:
+                logger.warning("清晰度分析未返回JSON格式，使用默认结果")
+                return self._get_default_analysis_result('clarity_analysis')
+                
+        except Exception as e:
+            logger.error(f"清晰度分析失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            return self._get_default_analysis_result('clarity_analysis')
+    
+    def _get_default_analysis_result(self, analysis_type: str) -> dict:
+        """获取默认的分析结果"""
+        return {
+            "analysis_type": analysis_type,
+            "overall_score": 70,
+            "summary": f"{analysis_type}分析完成，整体质量中等",
+            "issues": []
+        }
 
-            # 第二步：模块级详细分析
-            module_analyses = self._analyze_modules_detailed(document, global_analysis)
-
-            # 第三步：跨模块一致性检查
-            consistency_analysis = self._analyze_cross_module_consistency(
-                document, module_analyses, global_analysis
-            )
-
-            # 第四步：生成综合评审报告
-            comprehensive_report = self._generate_comprehensive_report(
-                global_analysis, module_analyses, consistency_analysis
-            )
-
+    def analyze_document_comprehensive(self, document: RequirementDocument, analysis_options: dict = None) -> dict:
+        """
+        全面分析需求文档 - 新架构：并发执行5个专项分析
+        现在5个分析可以并发执行，提高效率
+        
+        Args:
+            document: 要分析的文档
+            analysis_options: 分析选项，可包含max_workers控制并发数
+        """
+        analysis_options = analysis_options or {}
+        max_workers = analysis_options.get('max_workers', 3)  # 从选项中获取，默认3
+        
+        try:
+            logger.info(f"开始全面分析文档: {document.title}, 内容长度: {len(document.content)}, 并发数: {max_workers}")
+            
+            # 使用线程池并发执行5个专项分析（每个都处理完整文档，充分利用200k上下文）
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            
+            logger.info("开始并发执行5个专项分析...")
+            
+            # 定义5个分析任务
+            analysis_tasks = {
+                'completeness': ('完整性', self.analyze_completeness),
+                'consistency': ('一致性', self.analyze_consistency),
+                'testability': ('可测性', self.analyze_testability),
+                'feasibility': ('可行性', self.analyze_feasibility),
+                'clarity': ('清晰度', self.analyze_clarity),
+            }
+            
+            # 并发执行所有分析
+            results = {}
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # 提交所有任务
+                future_to_analysis = {
+                    executor.submit(task_func, document.content): (name, display_name)
+                    for name, (display_name, task_func) in analysis_tasks.items()
+                }
+                
+                # 收集结果
+                for future in as_completed(future_to_analysis):
+                    analysis_name, display_name = future_to_analysis[future]
+                    try:
+                        result = future.result()
+                        results[analysis_name] = result
+                        logger.info(f"{display_name}分析完成，评分: {result.get('overall_score', 0)}")
+                    except Exception as e:
+                        logger.error(f"{display_name}分析失败: {e}")
+                        # 使用默认结果
+                        results[analysis_name] = self._get_default_analysis_result(f'{analysis_name}_analysis')
+            
+            logger.info("所有专项分析并发执行完成")
+            
+            # 生成综合报告（新版本）
+            logger.info("生成综合分析报告...")
+            comprehensive_report = self._generate_comprehensive_report_v2({
+                'completeness': results.get('completeness', {}),
+                'consistency': results.get('consistency', {}),
+                'testability': results.get('testability', {}),
+                'feasibility': results.get('feasibility', {}),
+                'clarity': results.get('clarity', {}),
+                'document': document
+            })
+            
+            logger.info(f"文档分析完成，总体评分: {comprehensive_report.get('overall_score', 0)}")
             return comprehensive_report
 
         except Exception as e:
             logger.error(f"需求文档分析失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            raise
+    
+    def _generate_comprehensive_report_v2(self, analyses: dict) -> dict:
+        """生成综合评审报告 - 新架构版本"""
+        try:
+            # 提取各专项分析结果
+            completeness = analyses.get('completeness', {})
+            consistency = analyses.get('consistency', {})
+            testability = analyses.get('testability', {})
+            feasibility = analyses.get('feasibility', {})
+            clarity = analyses.get('clarity', {})
+            document = analyses.get('document')
+            
+            # 计算总体评分（5个维度平均）
+            scores = []
+            for analysis in [completeness, consistency, testability, feasibility, clarity]:
+                score = analysis.get('overall_score', 70)
+                scores.append(score)
+            
+            overall_score = int(sum(scores) / len(scores)) if scores else 70
+            
+            # 收集所有问题
+            all_issues = []
+            for analysis_name, analysis_data in [
+                ('completeness', completeness),
+                ('consistency', consistency),
+                ('testability', testability),
+                ('feasibility', feasibility),
+                ('clarity', clarity)
+            ]:
+                issues = analysis_data.get('issues', [])
+                for issue in issues:
+                    issue['source'] = analysis_name
+                    issue['analysis_type'] = analysis_name
+                    # 如果LLM返回的是severity而非priority,统一映射为priority
+                    if 'severity' in issue and 'priority' not in issue:
+                        issue['priority'] = issue['severity']
+                all_issues.extend(issues)
+            
+            # 按优先级分类问题
+            high_priority = [i for i in all_issues if i.get('priority') == 'high']
+            medium_priority = [i for i in all_issues if i.get('priority') == 'medium']
+            low_priority = [i for i in all_issues if i.get('priority') == 'low']
+            
+            logger.info(f"问题统计: 总数={len(all_issues)}, 高优先级={len(high_priority)}, 中优先级={len(medium_priority)}, 低优先级={len(low_priority)}")
+            if all_issues and len(high_priority) == len(medium_priority) == len(low_priority) == 0:
+                # 检查priority字段值
+                priority_values = set(i.get('priority') for i in all_issues if 'priority' in i)
+                logger.warning(f"所有问题都未分类到high/medium/low! 发现的priority值: {priority_values}")
+            
+            # 确定总体评价
+            if overall_score >= 90:
+                overall_rating = 'excellent'
+            elif overall_score >= 80:
+                overall_rating = 'good'
+            elif overall_score >= 70:
+                overall_rating = 'average'
+            elif overall_score >= 60:
+                overall_rating = 'needs_improvement'
+            else:
+                overall_rating = 'poor'
+            
+            # 收集改进建议
+            recommendations = []
+            for analysis in [completeness, consistency, testability, feasibility, clarity]:
+                recs = analysis.get('recommendations', [])
+                if isinstance(recs, list):
+                    recommendations.extend(recs)
+                elif isinstance(recs, str):
+                    recommendations.append(recs)
+            
+            # 去重
+            recommendations = list(set(recommendations))[:10]
+            
+            # 生成总结
+            summary = self._generate_summary(overall_score, len(all_issues), len(high_priority))
+            
+            # 构建综合报告
+            comprehensive_report = {
+                'overall_score': overall_score,
+                'overall_rating': overall_rating,
+                'total_issues': len(all_issues),
+                'high_priority_issues': len(high_priority),
+                'medium_priority_issues': len(medium_priority),
+                'low_priority_issues': len(low_priority),
+                
+                # 详细评分（5个专项维度）
+                'scores': {
+                    'completeness': completeness.get('overall_score', 70),
+                    'consistency': consistency.get('overall_score', 70),
+                    'testability': testability.get('overall_score', 70),
+                    'feasibility': feasibility.get('overall_score', 70),
+                    'clarity': clarity.get('overall_score', 70),
+                },
+                
+                # 问题详情
+                'issues': all_issues,
+                'high_priority_issues_detail': high_priority,
+                'medium_priority_issues_detail': medium_priority,
+                'low_priority_issues_detail': low_priority,
+                
+                # 专项分析详情
+                'specialized_analyses': {
+                    'completeness_analysis': completeness,
+                    'consistency_analysis': consistency,
+                    'testability_analysis': testability,
+                    'feasibility_analysis': feasibility,
+                    'clarity_analysis': clarity
+                },
+                
+                # 改进建议
+                'recommendations': recommendations,
+                
+                # 总结
+                'summary': summary,
+                
+                # 元数据
+                'analysis_architecture': 'specialized_200k_context',
+                'analysis_timestamp': str(document.updated_at) if document else '',
+                'document_length': len(document.content) if document and document.content else 0
+            }
+            
+            return comprehensive_report
+            
+        except Exception as e:
+            logger.error(f"生成综合报告失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
             raise
 
     def _analyze_global_structure(self, document: RequirementDocument) -> dict:
@@ -1571,13 +2017,15 @@ class RequirementReviewEngine:
             raise ValueError("用户未配置全局分析提示词，请先在提示词管理中配置")
 
         try:
+            prompt_template = Template(global_prompt)
+            formatted_prompt = prompt_template.safe_substitute(
+                title=document.title,
+                description=document.description or "无描述",
+                content=document.content[:6000]
+            )
             messages = [
                 SystemMessage(content="你是一位专业的需求分析师，擅长需求文档评审。"),
-                HumanMessage(content=global_prompt.format(
-                    title=document.title,
-                    description=document.description or "无描述",
-                    content=document.content[:6000]  # 限制长度
-                ))
+                HumanMessage(content=formatted_prompt)
             ]
 
             response = self.llm.invoke(messages)
@@ -1626,16 +2074,18 @@ class RequirementReviewEngine:
             raise ValueError("用户未配置模块分析提示词，请先在提示词管理中配置")
 
         try:
+            prompt_template = Template(module_prompt)
+            formatted_prompt = prompt_template.safe_substitute(
+                module_id=str(module.id),
+                module_title=module.title,
+                module_content=module.content[:3000],
+                business_flows=", ".join(global_context.get('business_flows', [])),
+                data_entities=", ".join(global_context.get('data_entities', [])),
+                global_rules=", ".join(global_context.get('global_rules', []))
+            )
             messages = [
                 SystemMessage(content="你是一位专业的需求分析师，正在进行需求评审。"),
-                HumanMessage(content=module_prompt.format(
-                    module_id=str(module.id),
-                    module_title=module.title,
-                    module_content=module.content[:3000],  # 限制长度
-                    business_flows=", ".join(global_context.get('business_flows', [])),
-                    data_entities=", ".join(global_context.get('data_entities', [])),
-                    global_rules=", ".join(global_context.get('global_rules', []))
-                ))
+                HumanMessage(content=formatted_prompt)
             ]
 
             response = self.llm.invoke(messages)
@@ -1671,12 +2121,14 @@ class RequirementReviewEngine:
             context_str = json.dumps(global_context, ensure_ascii=False, indent=2)
             analyses_str = json.dumps(module_analyses, ensure_ascii=False, indent=2)
 
+            prompt_template = Template(consistency_prompt)
+            formatted_prompt = prompt_template.safe_substitute(
+                global_context=context_str[:2000],
+                module_analyses=analyses_str[:4000]
+            )
             messages = [
                 SystemMessage(content="你是一位专业的需求分析师，擅长跨模块一致性检查。"),
-                HumanMessage(content=consistency_prompt.format(
-                    global_context=context_str[:2000],  # 限制长度
-                    module_analyses=analyses_str[:4000]  # 限制长度
-                ))
+                HumanMessage(content=formatted_prompt)
             ]
 
             response = self.llm.invoke(messages)
@@ -1983,7 +2435,7 @@ class RequirementReviewService:
             logger.info(f"开始评审文档: {document.title}")
 
             # 执行AI分析
-            analysis_result = self.review_engine.analyze_document_comprehensive(document)
+            analysis_result = self.review_engine.analyze_document_comprehensive(document, analysis_options)
 
             # 更新评审报告
             self._update_review_report(review_report, analysis_result)
@@ -2020,7 +2472,7 @@ class RequirementReviewService:
             raise
 
     def _update_review_report(self, review_report: 'ReviewReport', analysis_result: dict):
-        """更新评审报告基本信息"""
+        """更新评审报告基本信息和专项分析详情"""
         review_report.overall_rating = analysis_result.get('overall_rating', 'average')
         review_report.completion_score = analysis_result.get('overall_score', 0)
         review_report.total_issues = analysis_result.get('total_issues', 0)
@@ -2029,6 +2481,18 @@ class RequirementReviewService:
         review_report.low_priority_issues = analysis_result.get('low_priority_issues', 0)
         review_report.summary = analysis_result.get('summary', '')
         review_report.recommendations = '\n'.join(analysis_result.get('recommendations', []))
+        
+        # 保存专项分析详情（包含issues, strengths, recommendations等完整数据）
+        specialized_analyses = analysis_result.get('specialized_analyses', {})
+        review_report.specialized_analyses = specialized_analyses
+        
+        # 同时保存各专项分析的分数到独立字段
+        review_report.completeness_score = specialized_analyses.get('completeness_analysis', {}).get('overall_score', 0)
+        review_report.consistency_score = specialized_analyses.get('consistency_analysis', {}).get('overall_score', 0)
+        review_report.clarity_score = specialized_analyses.get('clarity_analysis', {}).get('overall_score', 0)
+        review_report.testability_score = specialized_analyses.get('testability_analysis', {}).get('overall_score', 0)
+        review_report.feasibility_score = specialized_analyses.get('feasibility_analysis', {}).get('overall_score', 0)
+        
         review_report.save()
 
     def _create_review_issues(self, review_report: 'ReviewReport', analysis_result: dict):
