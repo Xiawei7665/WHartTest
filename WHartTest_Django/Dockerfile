@@ -16,13 +16,17 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# 配置 apt 国内镜像加速（清华源）
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
+    sed -i 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources
+
 # 安装构建依赖（仅在构建阶段需要）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装uv（更快的pip替代品）
-RUN pip install --no-cache-dir uv
+# 安装uv（更快的pip替代品）+ 使用清华镜像加速
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple uv
 
 # 复制requirements并安装依赖到虚拟环境
 COPY requirements.txt .
@@ -60,7 +64,13 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
-    PYTHONPATH="/app:$PYTHONPATH"
+    PYTHONPATH="/app:$PYTHONPATH" \
+    FASTEMBED_CACHE_PATH=/root/.cache/fastembed \
+    HF_ENDPOINT=https://hf-mirror.com
+
+# 配置 apt 国内镜像加速（清华源）
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
+    sed -i 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources
 
 # 仅安装运行时必需的系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \

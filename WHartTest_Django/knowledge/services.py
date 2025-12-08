@@ -102,26 +102,36 @@ class SparseBM25Encoder:
         
         self.model_name = model_name or self.DEFAULT_MODEL
         
-        # 临时禁用离线模式以加载模型
-        offline_vars = ['HF_HUB_OFFLINE', 'TRANSFORMERS_OFFLINE', 'HF_DATASETS_OFFLINE']
-        old_values = {var: os.environ.pop(var, None) for var in offline_vars}
+        # 检查是否存在本地缓存（Docker 部署时模型已预下载）
+        cache_path = os.environ.get('FASTEMBED_CACHE_PATH', os.path.expanduser('~/.cache/fastembed'))
+        model_cache_exists = os.path.isdir(cache_path) and any(
+            'bm25' in d.lower() for d in os.listdir(cache_path)
+        ) if os.path.exists(cache_path) else False
         
-        # 重置 huggingface_hub 的离线状态缓存
-        try:
-            import huggingface_hub.constants
-            if hasattr(huggingface_hub.constants, 'HF_HUB_OFFLINE'):
-                huggingface_hub.constants.HF_HUB_OFFLINE = False
-        except Exception:
-            pass
-        
-        try:
+        if model_cache_exists:
+            # 有本地缓存时，保持离线模式，直接加载
+            logger.info(f"📦 发现 BM25 模型缓存: {cache_path}，使用离线模式加载")
             self._encoder = SparseTextEmbedding(model_name=self.model_name)
             logger.info(f"✅ 初始化 BM25 稀疏编码器: {self.model_name}")
-        finally:
-            # 恢复环境变量
-            for var, val in old_values.items():
-                if val is not None:
-                    os.environ[var] = val
+        else:
+            # 无本地缓存时，临时禁用离线模式以下载模型
+            offline_vars = ['HF_HUB_OFFLINE', 'TRANSFORMERS_OFFLINE', 'HF_DATASETS_OFFLINE']
+            old_values = {var: os.environ.pop(var, None) for var in offline_vars}
+            
+            try:
+                import huggingface_hub.constants
+                if hasattr(huggingface_hub.constants, 'HF_HUB_OFFLINE'):
+                    huggingface_hub.constants.HF_HUB_OFFLINE = False
+            except Exception:
+                pass
+            
+            try:
+                self._encoder = SparseTextEmbedding(model_name=self.model_name)
+                logger.info(f"✅ 初始化 BM25 稀疏编码器: {self.model_name}")
+            finally:
+                for var, val in old_values.items():
+                    if val is not None:
+                        os.environ[var] = val
 
     def encode_documents(self, texts: List[str]) -> List:
         """编码文档列表"""
