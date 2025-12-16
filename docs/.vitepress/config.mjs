@@ -45,6 +45,7 @@ export default defineConfig({
       { text: '项目介绍', link: '/project-introduction' },
       { text: '未来规划', link: '/future-planning' },
       { text: '快速上手', link: '/quick-start/django-deployment' },
+      { text: '版本说明', link: '/CHANGELOG' },
       { text: 'API文档', link: '/api/knowledge-api' },
       { text: '开发指南', link: '/developer-guide/contributing' }
     ],
