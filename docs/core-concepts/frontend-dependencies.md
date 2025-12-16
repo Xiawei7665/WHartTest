@@ -160,5 +160,50 @@ WHartTest 前端基于 Vue 3 生态构建，采用现代化的前端技术栈，
 - **作用**: Vue 的 TypeScript 编译器
 - **开源协议**: MIT License
 
+## 代码编辑器
 
+### Monaco Editor
+- **版本**: ^0.55.1
+- **作用**: VS Code 底层代码编辑器，提供语法高亮、智能提示等功能
+- **开源协议**: MIT License
+
+### Vue Monaco Editor
+- **版本**: ^1.6.0
+- **作用**: Monaco Editor 的 Vue 3 封装组件
+- **开源协议**: MIT License
+
+## 交互组件
+
+### Vuedraggable
+- **版本**: ^4.1.0
+- **作用**: 基于 Sortable.js 的拖拽排序组件
+- **特点**: 支持列表拖拽、跨列表拖拽、动画效果
+- **开源协议**: MIT License
+
+## CSS 预处理
+
+### Less
+- **版本**: ^4.4.2
+- **作用**: CSS 预处理器，支持变量、嵌套、混合等特性
+- **开源协议**: Apache License 2.0
+
+### Tailwind CSS PostCSS Plugin
+- **版本**: ^4.1.6
+- **作用**: Tailwind CSS 的 PostCSS 插件
+- **开源协议**: MIT License
+
+## 外部服务集成
+
+### Draw.io (diagrams.net)
+- **集成方式**: iframe 嵌入
+- **作用**: AI 图表编辑器，支持流程图、架构图等多种图表类型
+- **设计参考**: [next-ai-draw-io](https://github.com/DayuanJiang/next-ai-draw-io)
+- **配置**:
+  - 默认使用在线服务: `https://embed.diagrams.net`
+  - 可通过环境变量 `VITE_DRAWIO_URL` 配置自托管地址
+- **特点**:
+  - 支持 AI 辅助生成图表
+  - 导出 .drawio 文件
+  - 在 Draw.io 网页版中打开编辑
+- **开源协议**: Apache License 2.0
 

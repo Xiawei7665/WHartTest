@@ -163,3 +163,88 @@ WHartTest 后端基于 Django REST Framework 构建，采用 Python 生态的现
 
 **推荐方式**: 使用 API 嵌入服务（OpenAI、Azure、Ollama 等），无需下载大型模型文件。
 
+## 自然语言处理
+
+### NLTK
+- **版本**: >=3.8.0
+- **作用**: 自然语言处理工具包，用于文本分割和处理
+- **开源协议**: Apache License 2.0
+
+### Tiktoken
+- **版本**: >=0.5.0
+- **作用**: Token 计数库，用于上下文长度计算和 Token 管理
+- **开源协议**: MIT License
+
+## 实时通信
+
+### Django Channels
+- **版本**: 4.3.2
+- **作用**: Django WebSocket 支持
+- **开源协议**: BSD License
+
+### Channels Redis
+- **版本**: 4.3.0
+- **作用**: Channels 的 Redis 后端
+- **开源协议**: BSD License
+
+### Daphne
+- **版本**: 4.2.1
+- **作用**: ASGI 服务器，支持 HTTP、HTTP2 和 WebSocket
+- **开源协议**: BSD License
+
+## 异步任务
+
+### Celery
+- **版本**: 5.4.0
+- **作用**: 分布式任务队列
+- **开源协议**: BSD License
+
+### Redis
+- **版本**: 5.2.0
+- **作用**: Redis 客户端，用作 Celery 的 Broker 和 Backend
+- **开源协议**: MIT License
+
+## 数据库驱动
+
+### Psycopg2
+- **版本**: 2.9.10
+- **作用**: PostgreSQL 数据库驱动（Django ORM 使用）
+- **开源协议**: LGPL License
+
+### Psycopg3
+- **版本**: 3.3.1
+- **作用**: PostgreSQL 数据库驱动（LangGraph Checkpoint 使用）
+- **开源协议**: LGPL License
+
+## 测试与自动化
+
+### Pytest
+- **版本**: >=8.0.0
+- **作用**: Python 测试框架
+- **开源协议**: MIT License
+
+### Playwright
+- **版本**: >=1.40.0
+- **作用**: 浏览器自动化工具，用于端到端测试
+- **开源协议**: Apache License 2.0
+
+## ASGI 服务器
+
+### Uvicorn
+- **版本**: 0.34.0
+- **作用**: ASGI 服务器，支持 WebSocket
+- **开源协议**: BSD License
+
+## 语言检测
+
+### Langdetect
+- **版本**: 1.0.9
+- **作用**: 语言检测库
+- **开源协议**: Apache License 2.0
+
+## Markdown 处理
+
+### Markdown
+- **版本**: 3.9
+- **作用**: Markdown 文档解析和处理
+- **开源协议**: BSD License

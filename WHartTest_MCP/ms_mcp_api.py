@@ -153,10 +153,10 @@ def generate_custom_id():
     # 拼接固定的 '00000'
     return str(generate_custom_id.last_ts) + "00000"
 
-@mcp.tool(description="获取项目名称和项目id")
+@mcp.tool(description="【MS平台】获取项目名称和项目id")
 def get_project_name_and_id():
     """
-    获取项目名称和项目id
+    【MS平台】获取项目名称和项目id
     """
     r = client.get("/project/list/options/100001").json()
     if r.get("code") == 100200:
@@ -170,9 +170,9 @@ def get_project_name_and_id():
     else:
         return "请求失败，请重试。"
 
-@mcp.tool(description="获取模块的名称和对应id")
+@mcp.tool(description="【MS平台】获取模块的名称和对应id")
 def module_to_which_it_belongs(project_id: int = Field(description='项目id')):
-    """获取模块的名称和id"""
+    """【MS平台】获取模块的名称和id"""
     data_dict = client.get(f"/functional/case/module/tree/{project_id}").json()
     # 用于存储提取出的 id 和 name 的列表
     extracted_data = []
@@ -219,9 +219,9 @@ def module_to_which_it_belongs(project_id: int = Field(description='项目id')):
 
     return output_json_string
 
-@mcp.tool(description="获取用例等级的名称和对应id")
+@mcp.tool(description="【MS平台】获取用例等级的名称和对应id")
 def obtain_use_case_level(project_id: int = Field(description='项目id')):
-    """获取用例等级的名称和对应id"""
+    """【MS平台】获取用例等级的名称和对应id"""
     data = client.get(f"/functional/case/default/template/field/{project_id}").json()
 
     # 解析 JSON 字符串为 Python 字典
@@ -269,10 +269,10 @@ def obtain_use_case_level(project_id: int = Field(description='项目id')):
 
     return output_json_string
 
-@mcp.tool(description='生成测试用例步骤数据')
+@mcp.tool(description='【MS平台】生成测试用例步骤数据')
 def steps_for_generating_test_cases(testcases: list = Field(description='传入的步骤格式列表,示例：[{"desc": 输入账号,"result": 输入账号成功},{"desc": 输入密码,"result": 输入密码成功}]')):
     """
-    生成测试用例步骤数据
+    【MS平台】生成测试用例步骤数据
     testcases：传入一个列表包含字典，一个字典就是一个步骤和预期
     示例：[{"desc": 输入账号,"result": 输入账号成功},{"desc": 输入密码,"result": 输入密码成功}]
     """
@@ -297,7 +297,7 @@ def steps_for_generating_test_cases(testcases: list = Field(description='传入�
         num += 1
     return steps
 
-@mcp.tool(description='保存功能测试用例')
+@mcp.tool(description='【MS平台】保存功能测试用例')
 def add_functional_case(
         project_id: int = Field(description='项目id'),
         template_id: int = Field(description='模板id'),
@@ -309,7 +309,7 @@ def add_functional_case(
         steps: list = Field(description='用例步骤,示例：,[{"step_number": 1,"description": "步骤描述1","expected_result": "预期结果1"},{"step_number": 2,"description": "步骤描述2","expected_result": "预期结果2"}]'),
         ):
     """
-    保存功能测试用例
+    【MS平台】保存功能测试用例
     """
     try:
         steps_str = json.dumps(
