@@ -593,8 +593,10 @@ onMounted(async () => {
   color: #333333;
   border-right: none;
   border-radius: 8px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   text-align: left;
+  max-height: calc(100% - 50px);
 }
 
 :deep(.arco-menu-light) {

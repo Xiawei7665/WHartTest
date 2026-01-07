@@ -2,10 +2,11 @@
   <a-modal
     :visible="visible"
     title="知识库全局配置"
-    :width="640"
+    :width="modalWidth"
     @ok="handleSubmit"
     @cancel="handleCancel"
     :confirm-loading="loading"
+    :modal-style="{ maxWidth: '95vw' }"
   >
     <a-spin :loading="fetchLoading">
       <a-form
@@ -14,26 +15,38 @@
         :rules="rules"
         layout="vertical"
       >
-        <a-alert type="info" style="margin-bottom: 16px">
-          全局配置将应用于所有知识库的嵌入向量生成，修改后新上传的文档将使用新配置。
+        <a-alert type="info">
+          全局配置将应用于所有知识库向量生成，修改后新上传的文档将使用新配置。
         </a-alert>
 
         <a-divider>嵌入服务配置</a-divider>
 
-        <a-form-item label="嵌入服务" field="embedding_service">
-          <a-select
-            v-model="formData.embedding_service"
-            placeholder="请选择嵌入服务"
-            @change="handleEmbeddingServiceChange"
-          >
-            <a-option
-              v-for="service in embeddingServices"
-              :key="service.value"
-              :value="service.value"
-              :label="service.label"
-            />
-          </a-select>
-        </a-form-item>
+        <a-row :gutter="16">
+          <a-col :xs="24" :sm="12">
+            <a-form-item label="嵌入服务" field="embedding_service">
+              <a-select
+                v-model="formData.embedding_service"
+                placeholder="请选择嵌入服务"
+                @change="handleEmbeddingServiceChange"
+              >
+                <a-option
+                  v-for="service in embeddingServices"
+                  :key="service.value"
+                  :value="service.value"
+                  :label="service.label"
+                />
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="12">
+            <a-form-item label="模型名称" field="model_name">
+              <a-input
+                v-model="formData.model_name"
+                placeholder="text-embedding-ada-002 / bge-m3"
+              />
+            </a-form-item>
+          </a-col>
+        </a-row>
 
         <a-form-item label="API基础URL" field="api_base_url">
           <a-input
@@ -42,42 +55,41 @@
           />
         </a-form-item>
 
-        <a-form-item label="API密钥" field="api_key">
-          <a-input-password
-            v-model="formData.api_key"
-            placeholder="请输入API密钥"
-          />
-          <div class="form-item-tip">
-            OpenAI和Azure OpenAI必填，Ollama和自定义可选
-          </div>
-        </a-form-item>
-
-        <a-form-item label="模型名称" field="model_name">
-          <a-input
-            v-model="formData.model_name"
-            placeholder="请输入模型名称"
-          />
-          <div class="form-item-tip">
-            示例: OpenAI: text-embedding-ada-002 | Ollama: nomic-embed-text | 自定义: bge-m3
-          </div>
-        </a-form-item>
-
-        <a-form-item>
-          <a-button 
-            @click="testEmbeddingService"
-            :loading="testingConnection"
-            type="outline"
-          >
-            <template #icon><icon-refresh /></template>
-            测试连接
-          </a-button>
-        </a-form-item>
+        <a-row :gutter="16" align="end">
+          <a-col :xs="24" :sm="16">
+            <a-form-item label="API密钥" field="api_key">
+              <a-input-password
+                v-model="formData.api_key"
+                placeholder="OpenAI/Azure必填，Ollama/自定义可选"
+              />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="8">
+            <a-form-item>
+              <a-button
+                @click="testEmbeddingService"
+                :loading="testingConnection"
+                type="outline"
+                long
+              >
+                <template #icon><icon-refresh /></template>
+                测试连接
+              </a-button>
+            </a-form-item>
+          </a-col>
+        </a-row>
 
         <a-divider>默认分块配置</a-divider>
-        
+
         <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="分块大小" field="chunk_size">
+          <a-col :xs="24" :sm="12">
+            <a-form-item field="chunk_size">
+              <template #label>
+                分块大小
+                <a-tooltip content="每个文本块的最大字符数。建议值1000-2000，较小值提高检索精度，较大值保持上下文完整性。">
+                  <icon-question-circle class="label-tip-icon" />
+                </a-tooltip>
+              </template>
               <a-input-number
                 v-model="formData.chunk_size"
                 placeholder="分块大小"
@@ -86,11 +98,16 @@
                 :step="100"
                 style="width: 100%"
               />
-              <div class="form-item-tip">建议值：1000-2000，影响检索精度</div>
             </a-form-item>
           </a-col>
-          <a-col :span="12">
-            <a-form-item label="分块重叠" field="chunk_overlap">
+          <a-col :xs="24" :sm="12">
+            <a-form-item field="chunk_overlap">
+              <template #label>
+                分块重叠
+                <a-tooltip content="相邻文本块之间的重叠字符数。建议为分块大小的10-20%，可避免跨块信息丢失。">
+                  <icon-question-circle class="label-tip-icon" />
+                </a-tooltip>
+              </template>
               <a-input-number
                 v-model="formData.chunk_overlap"
                 placeholder="分块重叠"
@@ -99,7 +116,6 @@
                 :step="50"
                 style="width: 100%"
               />
-              <div class="form-item-tip">建议值：100-200，避免信息丢失</div>
             </a-form-item>
           </a-col>
         </a-row>
@@ -116,9 +132,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
-import { IconRefresh } from '@arco-design/web-vue/es/icon';
+import { IconRefresh, IconQuestionCircle } from '@arco-design/web-vue/es/icon';
 import { KnowledgeService } from '../services/knowledgeService';
 import type {
   KnowledgeGlobalConfig,
@@ -141,6 +157,14 @@ const formRef = ref();
 const loading = ref(false);
 const fetchLoading = ref(false);
 const testingConnection = ref(false);
+
+// 窗口宽度响应式
+const windowWidth = ref(window.innerWidth);
+const updateWindowWidth = () => { windowWidth.value = window.innerWidth; };
+const modalWidth = computed(() => windowWidth.value < 600 ? '95%' : 580);
+
+onMounted(() => window.addEventListener('resize', updateWindowWidth));
+onUnmounted(() => window.removeEventListener('resize', updateWindowWidth));
 
 // 表单数据
 const formData = reactive<KnowledgeGlobalConfig>({
@@ -307,18 +331,30 @@ const handleCancel = () => {
 </script>
 
 <style scoped>
-.form-item-tip {
-  font-size: 12px;
-  color: var(--color-text-3);
-  margin-top: 4px;
+:deep(.arco-form-item) {
+  margin-bottom: 12px;
+}
+
+:deep(.arco-divider) {
+  margin: 12px 0;
+}
+
+:deep(.arco-alert) {
+  margin-bottom: 12px !important;
 }
 
 .config-meta {
   font-size: 12px;
   color: var(--color-text-3);
   text-align: right;
-  margin-top: 16px;
-  padding-top: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid var(--color-border);
+}
+
+.label-tip-icon {
+  margin-left: 4px;
+  color: var(--color-text-3);
+  cursor: help;
 }
 </style>

@@ -5,7 +5,7 @@
         <a-input-search
           placeholder="搜索用例名称/前置条件"
           allow-clear
-          style="width: 300px"
+          class="search-input"
           @search="onSearch"
           v-model="localSearchKeyword"
         />
@@ -14,14 +14,14 @@
           :data="moduleTree"
           placeholder="筛选模块"
           allow-clear
-          style="width: 180px; margin-left: 12px;"
+          class="module-filter"
           @change="onModuleChange"
         />
         <a-select
           v-model="selectedLevel"
           placeholder="筛选优先级"
           allow-clear
-          style="width: 150px; margin-left: 12px;"
+          class="level-filter"
           @change="onLevelChange"
         >
           <a-option value="P0">P0 - 最高</a-option>
@@ -30,7 +30,7 @@
           <a-option value="P3">P3 - 低</a-option>
         </a-select>
         <a-dropdown @select="handleExportAction" trigger="click" position="bottom">
-          <a-button type="outline" style="margin-left: 12px;">
+          <a-button type="outline">
             <template #icon>
               <icon-download />
             </template>
@@ -47,14 +47,13 @@
           v-if="selectedTestCaseIds.length > 0"
           type="primary"
           status="danger"
-          style="margin-left: 12px;"
           @click="handleBatchDelete"
         >
           批量删除 ({{ selectedTestCaseIds.length }})
         </a-button>
       </div>
       <div class="action-buttons">
-        <a-button type="primary" @click="handleGenerateTestCases" style="margin-right: 10px;">生成用例</a-button>
+        <a-button type="primary" @click="handleGenerateTestCases">生成用例</a-button>
         <a-button type="primary" @click="handleAddTestCase">添加用例</a-button>
       </div>
     </div>
@@ -73,7 +72,7 @@
       :data="testCaseData"
       :pagination="paginationConfig"
       :loading="loading"
-      :scroll="{ x: 1200, y: 800 }"
+      :scroll="{ x: 900 }"
       :bordered="{ cell: true }"
       class="test-case-table"
       @page-change="onPageChange"
@@ -115,7 +114,7 @@
         <span v-else class="text-gray">未分配</span>
       </template>
       <template #operations="{ record }">
-        <a-space :size="10">
+        <a-space :size="4">
           <a-button type="primary" size="mini" @click.stop="handleViewTestCase(record)">查看</a-button>
           <a-button type="primary" size="mini" @click.stop="handleEditTestCase(record)">编辑</a-button>
           <a-button type="outline" size="mini" @click.stop="handleExecuteTestCase(record)">执行</a-button>
@@ -246,29 +245,31 @@ const columns = [
   {
     title: '选择',
     slotName: 'selection',
-    width: 40,
+    width: 36,
     dataIndex: 'selection',
     titleSlotName: 'selectAll',
     align: 'center'
   },
-  { title: 'ID', dataIndex: 'id', width: 60 },
-  { title: '用例名称', dataIndex: 'name', slotName: 'name', width: 240, ellipsis: true, tooltip: false },
-  { title: '前置条件', dataIndex: 'precondition', width: 150, ellipsis: true, tooltip: true },
-  { title: '优先级', dataIndex: 'level', slotName: 'level', width: 75 },
-  { title: '所属模块', dataIndex: 'module_detail', slotName: 'module', width: 120, ellipsis: true, tooltip: true },
+  { title: 'ID', dataIndex: 'id', width: 50, align: 'center' },
+  { title: '用例名称', dataIndex: 'name', slotName: 'name', width: 180, ellipsis: true, tooltip: false, align: 'center' },
+  { title: '前置条件', dataIndex: 'precondition', width: 120, ellipsis: true, tooltip: true, align: 'center' },
+  { title: '优先级', dataIndex: 'level', slotName: 'level', width: 80, align: 'center' },
+  { title: '所属模块', dataIndex: 'module_detail', slotName: 'module', width: 100, ellipsis: true, tooltip: true, align: 'center' },
   {
     title: '创建者',
     dataIndex: 'creator_detail',
     render: ({ record }: { record: TestCase }) => record.creator_detail?.username || '-',
     width: 80,
+    align: 'center',
   },
   {
     title: '创建时间',
     dataIndex: 'created_at',
     render: ({ record }: { record: TestCase }) => formatDate(record.created_at),
-    width: 150,
+    width: 100,
+    align: 'center',
   },
-  { title: '操作', slotName: 'operations', width: 180, fixed: 'right' },
+  { title: '操作', slotName: 'operations', width: 200, fixed: 'right', align: 'center' },
 ];
 
 const fetchTestCases = async () => {
@@ -511,23 +512,69 @@ defineExpose({
   flex: 1;
   background-color: #fff;
   border-radius: 8px;
-  padding: 20px;
+  padding: 16px;
   box-shadow: 4px 0 10px rgba(0, 0, 0, 0.2), 0 4px 10px rgba(0, 0, 0, 0.2), 0 0 10px rgba(0, 0, 0, 0.15);
   height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  position: relative; /* 添加相对定位，为分页器的绝对定位提供参考 */
-  padding-bottom: 90px; /* 增加底部内边距，为分页器预留空间 */
+  position: relative;
+  padding-bottom: 60px;
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.search-box {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.search-box > * {
+  margin-left: 0 !important;
+  flex-shrink: 1;
+}
+
+.action-buttons {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.action-buttons > * {
+  margin-right: 0 !important;
+}
+
+.search-input {
+  width: 200px;
+  min-width: 120px;
+  flex-shrink: 1;
+}
+
+.module-filter {
+  width: 140px;
+  min-width: 100px;
+  flex-shrink: 1;
+}
+
+.level-filter {
+  width: 120px;
+  min-width: 90px;
+  flex-shrink: 1;
 }
 
 .no-project-selected {
@@ -544,8 +591,16 @@ defineExpose({
   height: 0;
   display: flex;
   flex-direction: column;
-  min-height: 0; /* Allow shrinking for nested flex container */
-  max-height: calc(100% - 90px); /* 增加留给分页器的空间 */
+  min-height: 0;
+  max-height: calc(100% - 60px);
+}
+
+:deep(.test-case-table .arco-table) {
+  width: 100%;
+}
+
+:deep(.test-case-table .arco-table-content-scroll) {
+  overflow-x: auto !important;
 }
 
 .text-gray {
@@ -570,14 +625,12 @@ defineExpose({
   flex: 1;
   overflow-y: auto !important;
   min-height: 0;
-  /* 增加底部内边距，防止最后一行阴影被遮挡 */
-  padding-bottom: 30px;
+  padding-bottom: 16px;
 }
 
-/* 给最后一行数据添加明显的底部阴影效果 */
 :deep(.test-case-table .arco-table-body tr:last-child td) {
   border-bottom: none !important;
-  box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.2) !important;
+  box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.15) !important;
   position: relative;
   z-index: 9;
   background-color: #fff;
@@ -586,21 +639,21 @@ defineExpose({
 :deep(.test-case-table .arco-pagination) {
   flex-shrink: 0;
   margin-top: 8px;
-  display: flex; /* 将分页栏设置为flex容器 */
-  flex-wrap: wrap; /* 允许内部元素换行 */
-  justify-content: flex-end; /* 元素换行后整体靠右对齐，可根据需要调整为 center 或 flex-start */
-  align-items: center; /* 垂直居中对齐换行的元素 */
-  gap: 8px; /* 为换行的元素之间添加一些间隙 */
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
   position: sticky;
   bottom: 0;
   background-color: #fff;
   z-index: 1;
-  box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.05); /* 给分页器添加顶部阴影，增强层次感 */
+  padding: 8px 0;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
 }
 
-/* 确保操作列按钮不会溢出 */
 :deep(.test-case-table .arco-table-cell-fixed-right) {
-  padding: 8px 4px;
+  padding: 6px 4px;
 }
 
 :deep(.test-case-table .arco-space-compact) {
@@ -609,9 +662,9 @@ defineExpose({
 }
 
 :deep(.test-case-table .arco-btn-size-mini) {
-  padding: 0 8px;
+  padding: 0 6px;
   font-size: 12px;
-  min-width: 40px;
+  min-width: 36px;
 }
 
 /* 勾选框居中显示 */
@@ -623,10 +676,9 @@ defineExpose({
   height: 100%;
 }
 
-/* 用例名称链接样式 */
 .testcase-name-link {
   display: inline-block;
-  max-width: 220px;
+  max-width: 160px;
   color: #1890ff;
   cursor: pointer;
   text-decoration: none;

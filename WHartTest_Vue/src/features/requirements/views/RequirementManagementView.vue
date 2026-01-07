@@ -6,7 +6,6 @@
         <a-input-search
           v-model="searchKeyword"
           placeholder="搜索文档标题或描述"
-          style="width: 300px"
           @search="handleSearch"
           @clear="handleSearch"
           allow-clear
@@ -14,7 +13,6 @@
         <a-select
           v-model="statusFilter"
           placeholder="文档状态"
-          style="width: 150px; margin-left: 12px"
           @change="handleSearch"
           allow-clear
         >
@@ -31,7 +29,6 @@
         <a-select
           v-model="typeFilter"
           placeholder="文档类型"
-          style="width: 120px; margin-left: 12px"
           @change="handleSearch"
           allow-clear
         >
@@ -43,7 +40,7 @@
           <a-option value="txt">文本</a-option>
           <a-option value="html">HTML</a-option>
         </a-select>
-        <a-button type="primary" @click="showUploadModal" style="margin-left: 12px">
+        <a-button type="primary" @click="showUploadModal">
           <template #icon><icon-plus /></template>
           上传需求文档
         </a-button>
@@ -57,6 +54,7 @@
         :data="documentList"
         :loading="loading"
         :pagination="pagination"
+        :scroll="{ x: 1000 }"
         @page-change="handlePageChange"
         @page-size-change="handlePageSizeChange"
         row-key="id"
@@ -84,9 +82,9 @@
 
         <!-- 操作列 -->
         <template #actions="{ record }">
-          <a-space>
+          <div class="actions-wrapper">
             <a-button type="text" size="small" @click="viewDocument(record)">
-              查看详情
+              详情
             </a-button>
             <a-button
               v-if="record.status === 'uploaded'"
@@ -94,7 +92,7 @@
               size="small"
               @click="viewDocument(record)"
             >
-              配置拆分
+              拆分
             </a-button>
             <a-button
               v-if="record.status === 'ready_for_review'"
@@ -102,7 +100,7 @@
               size="small"
               @click="startReview(record)"
             >
-              开始评审
+              评审
             </a-button>
             <a-button
               v-if="record.status === 'review_completed'"
@@ -110,7 +108,7 @@
               size="small"
               @click="viewReports(record)"
             >
-              查看报告
+              报告
             </a-button>
             <a-button
               v-if="record.status === 'review_completed'"
@@ -118,7 +116,7 @@
               size="small"
               @click="restartReview(record)"
             >
-              重新评审
+              重审
             </a-button>
             <a-button
               v-if="record.status === 'failed'"
@@ -126,7 +124,7 @@
               size="small"
               @click="retryReview(record)"
             >
-              重试评审
+              重试
             </a-button>
             <a-popconfirm
               content="确定要删除这个文档吗？"
@@ -136,7 +134,7 @@
                 删除
               </a-button>
             </a-popconfirm>
-          </a-space>
+          </div>
         </template>
       </a-table>
     </div>
@@ -360,25 +358,15 @@ const columns = [
   {
     title: '文档标题',
     dataIndex: 'title',
-    width: 300,
+    width: 200,
     ellipsis: true,
     tooltip: true
-  },
-  {
-    title: '描述',
-    dataIndex: 'description',
-    width: 80,
-    ellipsis: true,
-    tooltip: true,
-    render: ({ record }: { record: RequirementDocument }) => {
-      return record.description || '暂无描述';
-    }
   },
   {
     title: '状态',
     dataIndex: 'status',
     slotName: 'status',
-    width: 80
+    width: 100
   },
   {
     title: '类型',
@@ -387,19 +375,20 @@ const columns = [
     width: 80
   },
   {
-    title: '统计信息',
+    title: '统计',
     slotName: 'stats',
-    width: 150
+    width: 140
   },
   {
     title: '上传者',
     dataIndex: 'uploader_name',
-    width: 80
+    width: 80,
+    ellipsis: true
   },
   {
     title: '上传时间',
     dataIndex: 'uploaded_at',
-    width: 150,
+    width: 140,
     render: ({ record }: { record: RequirementDocument }) => {
       return new Date(record.uploaded_at).toLocaleString();
     }
@@ -407,7 +396,7 @@ const columns = [
   {
     title: '操作',
     slotName: 'actions',
-    width: 280,
+    width: 260,
     fixed: 'right',
     align: 'center'
   }
@@ -777,6 +766,16 @@ projectStore.$subscribe((_mutation, state) => {
   gap: 12px;
 }
 
+.filter-row .arco-input-search {
+  width: 300px;
+  flex-shrink: 0;
+}
+
+.filter-row .arco-select {
+  width: 120px;
+  flex-shrink: 0;
+}
+
 .content-section {
   background: white;
   border-radius: 8px;
@@ -848,5 +847,11 @@ projectStore.$subscribe((_mutation, state) => {
 .file-size {
   font-size: 12px;
   color: #86909c;
+}
+
+.actions-wrapper {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
 }
 </style>

@@ -11,7 +11,7 @@
             v-model="filterStatus"
             placeholder="脚本状态"
             allow-clear
-            style="width: 150px"
+            class="filter-select"
             @change="handleFilterChange"
           >
             <a-option value="active">启用</a-option>
@@ -22,7 +22,7 @@
             v-model="filterSource"
             placeholder="来源"
             allow-clear
-            style="width: 150px"
+            class="filter-select"
             @change="handleFilterChange"
           >
             <a-option value="ai_generated">AI 生成</a-option>
@@ -31,7 +31,7 @@
           <a-input-search
             v-model="searchKeyword"
             placeholder="搜索脚本名称"
-            style="width: 200px"
+            class="search-input"
             @search="handleFilterChange"
           />
         </a-space>
@@ -48,29 +48,30 @@
         :loading="loading"
         :pagination="pagination"
         :header-cell-style="{ textAlign: 'center' }"
+        :scroll="{ x: 900 }"
         @page-change="handlePageChange"
       >
         <template #columns>
-          <a-table-column title="ID" data-index="id" :width="60" align="center" />
-          <a-table-column title="脚本名称" data-index="name" :width="180" align="center">
+          <a-table-column title="ID" data-index="id" :width="50" align="center" />
+          <a-table-column title="脚本名称" data-index="name" :width="140" align="center" ellipsis>
             <template #cell="{ record }">
               <a-link @click="showDetail(record)">{{ record.name }}</a-link>
             </template>
           </a-table-column>
-          <a-table-column title="关联用例" data-index="test_case_name" :width="150" align="center" />
-          <a-table-column title="类型" data-index="script_type" :width="100" align="center">
+          <a-table-column title="关联用例" data-index="test_case_name" :width="120" align="center" ellipsis />
+          <a-table-column title="类型" data-index="script_type" :width="120" align="center">
             <template #cell="{ record }">
               <a-tag color="blue">{{ getScriptTypeLabel(record.script_type) }}</a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="来源" data-index="source" :width="100" align="center">
+          <a-table-column title="来源" data-index="source" :width="70" align="center">
             <template #cell="{ record }">
               <a-tag :color="getSourceColor(record.source)">
                 {{ getSourceLabel(record.source) }}
               </a-tag>
             </template>
           </a-table-column>
-          <a-table-column title="状态" data-index="status" :width="80" align="center">
+          <a-table-column title="状态" data-index="status" :width="70" align="center">
             <template #cell="{ record }">
               <a-badge :status="getStatusBadge(record.status)" :text="getStatusLabel(record.status)" />
             </template>
@@ -78,7 +79,7 @@
           <a-table-column title="版本" data-index="version" :width="60" align="center">
             <template #cell="{ record }">v{{ record.version }}</template>
           </a-table-column>
-          <a-table-column title="最近执行" data-index="latest_status" :width="90" align="center">
+          <a-table-column title="最近" data-index="latest_status" :width="80" align="center">
             <template #cell="{ record }">
               <template v-if="record.latest_status">
                 <a-tag :color="getExecutionStatusColor(record.latest_status)">
@@ -88,14 +89,14 @@
               <span v-else class="text-gray">未执行</span>
             </template>
           </a-table-column>
-          <a-table-column title="创建时间" data-index="created_at" :width="160" align="center">
+          <a-table-column title="创建时间" data-index="created_at" :width="100" align="center">
             <template #cell="{ record }">
               {{ formatTime(record.created_at) }}
             </template>
           </a-table-column>
-          <a-table-column title="操作" :width="200" fixed="right" align="center">
+          <a-table-column title="操作" :width="210" fixed="right" align="center">
             <template #cell="{ record }">
-              <a-space>
+              <a-space :size="2">
                 <a-button type="text" size="small" @click="showDetail(record)">
                   <icon-eye />
                 </a-button>
@@ -130,7 +131,7 @@
     <a-drawer
       v-model:visible="detailVisible"
       :title="currentScript?.name || '脚本详情'"
-      :width="800"
+      :width="drawerWidth"
       :footer="false"
     >
       <template v-if="currentScript">
@@ -248,7 +249,7 @@
     <a-modal
       v-model:visible="editModalVisible"
       :title="isEditMode ? '编辑脚本' : '新建脚本'"
-      :width="1400"
+      :width="modalWidth"
       :body-style="{ padding: 0 }"
       :mask-closable="false"
       :footer="false"
@@ -495,6 +496,25 @@ const searchKeyword = ref('');
 const filterStatus = ref<string | undefined>();
 const filterSource = ref<string | undefined>();
 const executingId = ref<number | null>(null);
+
+// 响应式宽度计算
+const windowWidth = ref(window.innerWidth);
+const updateWindowWidth = () => {
+  windowWidth.value = window.innerWidth;
+};
+
+const drawerWidth = computed(() => {
+  if (windowWidth.value < 600) return '100%';
+  if (windowWidth.value < 900) return '90%';
+  return 800;
+});
+
+const modalWidth = computed(() => {
+  if (windowWidth.value < 600) return '100%';
+  if (windowWidth.value < 1000) return '95%';
+  if (windowWidth.value < 1400) return '90%';
+  return 1400;
+});
 
 // 详情抽屉
 const detailVisible = ref(false);
@@ -785,14 +805,6 @@ const stopLivePreview = () => {
   frameHistory.value = [];
   currentFrameIndex.value = 0;
 };
-
-// 组件卸载时清理 WebSocket
-onUnmounted(() => {
-  if (previewWebSocket) {
-    previewWebSocket.close();
-    previewWebSocket = null;
-  }
-});
 
 // 分页
 const pagination = ref({
@@ -1102,12 +1114,22 @@ const getExecutionStatusColor = (status: string) => {
 
 onMounted(() => {
   fetchScripts();
+  window.addEventListener('resize', updateWindowWidth);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateWindowWidth);
+  if (previewWebSocket) {
+    previewWebSocket.close();
+    previewWebSocket = null;
+  }
 });
 </script>
 
 <style scoped>
 .automation-script-management {
-  padding: 20px;
+  padding: 16px;
+  overflow-x: hidden;
 }
 
 .filter-card {
@@ -1118,10 +1140,47 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.filter-select {
+  width: 120px;
+  min-width: 100px;
+}
+
+.search-input {
+  width: 180px;
+  min-width: 120px;
+}
+
+@media (max-width: 768px) {
+  .filter-select,
+  .search-input {
+    width: 100%;
+    flex: 1;
+  }
 }
 
 .table-card {
   margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.table-card :deep(.arco-table) {
+  width: 100%;
+}
+
+.table-card :deep(.arco-table-container) {
+  overflow-x: auto;
+}
+
+.table-card :deep(.arco-table-content-scroll) {
+  overflow-x: auto !important;
+}
+
+.table-card :deep(.arco-table-td) {
+  white-space: nowrap;
 }
 
 .text-gray {
@@ -1228,19 +1287,39 @@ onMounted(() => {
 /* 左右布局的脚本编辑器 */
 .script-editor-layout {
   display: flex;
-  height: 700px;
+  height: 70vh;
+  max-height: 700px;
+  min-height: 400px;
   overflow: hidden;
 }
 
+@media (max-width: 900px) {
+  .script-editor-layout {
+    flex-direction: column;
+    height: auto;
+    max-height: none;
+  }
+}
+
 .editor-left-panel {
-  width: 360px;
-  min-width: 360px;
-  padding: 20px;
+  width: 320px;
+  min-width: 280px;
+  padding: 16px;
   border-right: 1px solid #e5e6eb;
   overflow-y: auto;
   background: #fafafa;
   display: flex;
   flex-direction: column;
+}
+
+@media (max-width: 900px) {
+  .editor-left-panel {
+    width: 100%;
+    min-width: 0;
+    border-right: none;
+    border-bottom: 1px solid #e5e6eb;
+    max-height: 300px;
+  }
 }
 
 .script-form {
@@ -1311,6 +1390,12 @@ onMounted(() => {
   flex-direction: column;
   background: #1e1e1e;
   min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .editor-right-panel {
+    min-height: 350px;
+  }
 }
 
 .editor-header {

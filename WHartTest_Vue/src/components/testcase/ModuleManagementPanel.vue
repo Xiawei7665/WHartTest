@@ -351,10 +351,20 @@ defineExpose({
 <style scoped>
 .module-panel-wrapper {
   width: 280px;
-  min-width: 240px;
+  min-width: 200px;
+  max-width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .module-panel-wrapper {
+    width: 100%;
+    height: 200px;
+    min-height: 150px;
+  }
 }
 
 .module-panel {

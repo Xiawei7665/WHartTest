@@ -270,6 +270,7 @@ onMounted(() => {
 <style scoped>
 .skill-manager {
   padding: 16px;
+  overflow-x: hidden;
 }
 
 .header-bar {
@@ -277,10 +278,13 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .header-bar h3 {
   margin: 0;
+  flex-shrink: 0;
 }
 
 .empty-state {
@@ -293,7 +297,7 @@ onMounted(() => {
 
 .skill-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -303,6 +307,8 @@ onMounted(() => {
   border-radius: 8px;
   padding: 16px;
   transition: all 0.2s;
+  overflow: hidden;
+  min-width: 0;
 }
 
 .skill-card:hover {
@@ -318,11 +324,16 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+  gap: 8px;
 }
 
 .skill-name {
   font-weight: 600;
   font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .skill-description {
@@ -338,7 +349,8 @@ onMounted(() => {
 .skill-footer {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   font-size: 12px;
   color: var(--color-text-3);
 }
@@ -347,12 +359,14 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 
 .skill-actions {
   margin-left: auto;
   display: flex;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .upload-container {

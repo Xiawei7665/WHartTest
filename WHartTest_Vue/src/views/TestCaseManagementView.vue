@@ -410,6 +410,12 @@ onMounted(() => {
   overflow: hidden;
 }
 
+@media (max-width: 768px) {
+  .list-view-layout {
+    flex-direction: column;
+  }
+}
+
 /* 右侧内容区域样式 */
 .right-content-area {
   flex: 1;
