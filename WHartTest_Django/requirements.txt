@@ -193,6 +193,10 @@ python-pptx==1.0.2
 # https://github.com/ankushshah89/python-docx2txt/blob/master/LICENSE
 docx2txt==0.9
 
+# OLE文件解析(用于.doc格式) - BSD许可证
+# https://github.com/decalage2/olefile/blob/master/LICENSE.txt
+olefile>=0.46
+
 # Markdown文档处理 - BSD许可证 (当前版本: 3.9)
 # https://github.com/Python-Markdown/markdown/blob/master/LICENSE.md
 markdown==3.9

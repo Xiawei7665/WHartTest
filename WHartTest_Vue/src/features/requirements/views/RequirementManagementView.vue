@@ -181,14 +181,14 @@
             :auto-upload="false"
             :show-file-list="true"
             :limit="1"
-            accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.html"
+            accept=".pdf,.doc,.docx,.txt,.md"
             @change="handleFileChange"
           >
             <template #upload-button>
               <div class="upload-area">
                 <icon-upload />
                 <div>点击上传文件</div>
-                <div class="upload-tip">支持 PDF、Word、文本、HTML</div>
+                <div class="upload-tip">支持 PDF、Word(.doc/.docx)、TXT、Markdown</div>
               </div>
             </template>
             <template #upload-item="{ fileItem, index }">
@@ -377,7 +377,7 @@ const columns = [
   {
     title: '统计',
     slotName: 'stats',
-    width: 140
+    width: 180
   },
   {
     title: '上传者',
@@ -388,7 +388,7 @@ const columns = [
   {
     title: '上传时间',
     dataIndex: 'uploaded_at',
-    width: 140,
+    width: 170,
     render: ({ record }: { record: RequirementDocument }) => {
       return new Date(record.uploaded_at).toLocaleString();
     }
@@ -525,7 +525,7 @@ const handleFileChange = (fileListParam: any[], file: any) => {
     // 自动设置文档类型
     const fileName = file.file.name;
     const extension = fileName.split('.').pop()?.toLowerCase();
-    if (extension && ['pdf', 'docx', 'pptx', 'txt', 'md', 'html'].includes(extension)) {
+    if (extension && ['pdf', 'doc', 'docx', 'txt', 'md'].includes(extension)) {
       uploadForm.document_type = extension as DocumentType;
     }
     // 如果没有标题，使用文件名

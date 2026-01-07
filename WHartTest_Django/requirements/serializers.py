@@ -30,7 +30,9 @@ class RequirementDocumentSerializer(serializers.ModelSerializer):
 
 class RequirementDocumentUploadSerializer(serializers.ModelSerializer):
     """需求文档上传序列化器"""
-    
+
+    SUPPORTED_EXTENSIONS = {'txt', 'md', 'pdf', 'doc', 'docx'}
+
     class Meta:
         model = RequirementDocument
         fields = [
@@ -38,7 +40,17 @@ class RequirementDocumentUploadSerializer(serializers.ModelSerializer):
             'status', 'word_count', 'uploaded_at'
         ]
         read_only_fields = ['id', 'status', 'word_count', 'uploaded_at']
-    
+
+    def validate_file(self, value):
+        """验证文件格式"""
+        if value:
+            ext = value.name.lower().split('.')[-1] if '.' in value.name else ''
+            if ext not in self.SUPPORTED_EXTENSIONS:
+                raise serializers.ValidationError(
+                    f"不支持的文件格式: .{ext}。支持的格式: PDF、Word(.doc/.docx)、TXT、Markdown(.md)"
+                )
+        return value
+
     def validate(self, data):
         """验证文档内容"""
         if not data.get('file') and not data.get('content'):

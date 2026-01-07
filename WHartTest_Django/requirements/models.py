@@ -16,11 +16,10 @@ class RequirementDocument(models.Model):
     """
     DOCUMENT_TYPES = [
         ('pdf', 'PDF'),
+        ('doc', 'Word文档'),
         ('docx', 'Word文档'),
-        ('pptx', 'PowerPoint'),
         ('txt', '文本文件'),
         ('md', 'Markdown'),
-        ('html', 'HTML'),
     ]
 
     STATUS_CHOICES = [

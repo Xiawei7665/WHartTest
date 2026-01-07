@@ -28,7 +28,7 @@ export type DocumentStatus =
   | 'failed';            // 处理失败
 
 // 文档类型枚举
-export type DocumentType = 'pdf' | 'docx' | 'pptx' | 'txt' | 'md' | 'html';
+export type DocumentType = 'pdf' | 'doc' | 'docx' | 'txt' | 'md';
 
 // 需求文档接口
 export interface RequirementDocument {
@@ -341,11 +341,10 @@ export const DocumentStatusDisplay: Record<DocumentStatus, string> = {
 
 export const DocumentTypeDisplay: Record<DocumentType, string> = {
   pdf: 'PDF',
+  doc: 'Word文档',
   docx: 'Word文档',
-  pptx: 'PowerPoint',
   txt: '文本文件',
-  md: 'Markdown',
-  html: 'HTML'
+  md: 'Markdown'
 };
 
 export const RatingDisplay: Record<Rating, string> = {

@@ -220,23 +220,26 @@ class DocumentProcessor:
             logger.error(f"提取文档内容失败: {e}")
             return ""
     
+    SUPPORTED_EXTENSIONS = {'txt', 'md', 'pdf', 'doc', 'docx'}
+
     def _extract_from_file(self, file) -> str:
         """从文件提取内容"""
         try:
             file_extension = file.name.lower().split('.')[-1] if '.' in file.name else ''
 
+            if file_extension not in self.SUPPORTED_EXTENSIONS:
+                raise ValueError(f"不支持的文件格式: .{file_extension}。支持的格式: PDF、Word(.doc/.docx)、TXT、Markdown")
+
             if file_extension == 'txt':
                 return self._extract_from_txt(file)
             elif file_extension == 'md':
                 return self._extract_from_markdown(file)
-            elif file_extension in ['pdf']:
+            elif file_extension == 'pdf':
                 return self._extract_from_pdf(file)
-            elif file_extension in ['docx', 'doc']:
+            elif file_extension == 'docx':
                 return self._extract_from_word(file)
-            else:
-                # 对于不支持的格式，尝试作为文本文件读取
-                logger.warning(f"不支持的文件格式: {file_extension}，尝试作为文本文件读取")
-                return self._extract_from_txt(file)
+            elif file_extension == 'doc':
+                return self._extract_from_doc(file)
 
         except Exception as e:
             logger.error(f"文件内容提取失败: {e}")
@@ -403,6 +406,121 @@ class DocumentProcessor:
 
         except Exception as e:
             logger.error(f"简化Word文档解析也失败: {e}")
+            return ""
+
+    def _extract_from_doc(self, file) -> str:
+        """提取旧版Word(.doc)文件内容"""
+        import tempfile
+        import os
+        import platform
+        import subprocess
+
+        file.seek(0)
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.doc') as tmp:
+            tmp.write(file.read())
+            tmp_path = os.path.abspath(tmp.name)
+
+        try:
+            content = None
+
+            # Windows: 使用 COM 接口
+            if platform.system() == 'Windows':
+                content = self._extract_doc_with_com(tmp_path)
+                if content:
+                    logger.info(f"成功提取.doc文档(COM)，内容长度: {len(content)}")
+                    return content
+
+            # Linux/Mac: 依次尝试 antiword -> catdoc -> LibreOffice
+            # 方法1: antiword
+            try:
+                result = subprocess.run(
+                    ['antiword', '-w', '0', tmp_path],
+                    capture_output=True, text=True, timeout=60
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    content = result.stdout.strip()
+                    logger.info(f"成功提取.doc文档(antiword)，内容长度: {len(content)}")
+                    return content
+            except FileNotFoundError:
+                logger.debug("antiword 未安装")
+            except Exception as e:
+                logger.debug(f"antiword 失败: {e}")
+
+            # 方法2: catdoc
+            try:
+                result = subprocess.run(
+                    ['catdoc', '-w', tmp_path],
+                    capture_output=True, text=True, timeout=60
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    content = result.stdout.strip()
+                    logger.info(f"成功提取.doc文档(catdoc)，内容长度: {len(content)}")
+                    return content
+            except FileNotFoundError:
+                logger.debug("catdoc 未安装")
+            except Exception as e:
+                logger.debug(f"catdoc 失败: {e}")
+
+            # 方法3: LibreOffice
+            try:
+                import tempfile as tf
+                with tf.TemporaryDirectory() as tmp_dir:
+                    result = subprocess.run(
+                        ['libreoffice', '--headless', '--convert-to', 'txt:Text',
+                         '--outdir', tmp_dir, tmp_path],
+                        capture_output=True, text=True, timeout=120
+                    )
+                    if result.returncode == 0:
+                        txt_file = os.path.join(tmp_dir,
+                            os.path.basename(tmp_path).replace('.doc', '.txt'))
+                        if os.path.exists(txt_file):
+                            with open(txt_file, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read().strip()
+                            logger.info(f"成功提取.doc文档(LibreOffice)，内容长度: {len(content)}")
+                            return content
+            except FileNotFoundError:
+                logger.debug("LibreOffice 未安装")
+            except Exception as e:
+                logger.debug(f"LibreOffice 失败: {e}")
+
+            # 所有方法都失败
+            error_msg = (
+                "无法解析 .doc 文件。请安装以下工具之一：\n"
+                "Ubuntu/Debian: apt-get install antiword\n"
+                "或者将文件另存为 .docx 格式后重新上传"
+            )
+            logger.error(error_msg)
+            return ""
+
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+    def _extract_doc_with_com(self, file_path: str) -> str:
+        """使用Windows COM接口提取.doc内容"""
+        try:
+            import win32com.client
+            import pythoncom
+
+            pythoncom.CoInitialize()
+            try:
+                word = win32com.client.Dispatch("Word.Application")
+                word.Visible = False
+                word.DisplayAlerts = False
+                doc = word.Documents.Open(file_path, ReadOnly=True, AddToRecentFiles=False)
+                content = doc.Content.Text
+                doc.Close(False)
+                word.Quit()
+                return content.strip()
+            finally:
+                pythoncom.CoUninitialize()
+        except ImportError:
+            logger.debug("pywin32 未安装")
+            return ""
+        except Exception as e:
+            logger.error(f"COM方式解析.doc失败: {e}")
             return ""
 
     def _convert_paragraph_to_markdown(self, paragraph) -> str:
