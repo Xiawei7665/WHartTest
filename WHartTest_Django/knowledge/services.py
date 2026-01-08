@@ -200,6 +200,8 @@ class DocumentProcessor:
             'pdf': PyPDFLoader,
             'docx': self._load_docx_structured,  # 使用自定义结构化解析
             'doc': self._load_doc_structured,    # 支持旧版 .doc 格式
+            'xlsx': self._load_excel_structured,  # Excel 表格
+            'xls': self._load_excel_structured,   # 旧版 Excel
             'pptx': UnstructuredPowerPointLoader,
             'txt': TextLoader,
             'md': UnstructuredMarkdownLoader,
@@ -640,6 +642,92 @@ class DocumentProcessor:
                 result_lines.append(line)
 
         return '\n'.join(result_lines)
+
+    def _load_excel_structured(self, file_path: str, document: Document) -> List[LangChainDocument]:
+        """解析 Excel 文件（.xlsx/.xls），将每个工作表转换为 Markdown 表格"""
+        try:
+            import pandas as pd
+
+            # 读取所有工作表
+            excel_file = pd.ExcelFile(file_path)
+            sheet_names = excel_file.sheet_names
+
+            logger.info(f"开始解析 Excel 文件，工作表数量: {len(sheet_names)}")
+
+            content_parts = []
+            total_rows = 0
+
+            for sheet_name in sheet_names:
+                try:
+                    # 读取工作表，保留所有数据
+                    df = pd.read_excel(excel_file, sheet_name=sheet_name, dtype=str)
+                    df = df.fillna('')  # 空值替换为空字符串
+
+                    if df.empty:
+                        continue
+
+                    total_rows += len(df)
+
+                    # 生成工作表标题
+                    content_parts.append(f"## {sheet_name}")
+
+                    # 转换为 Markdown 表格
+                    markdown_table = self._dataframe_to_markdown(df)
+                    if markdown_table:
+                        content_parts.append(markdown_table)
+
+                except Exception as e:
+                    logger.warning(f"解析工作表 '{sheet_name}' 失败: {e}")
+                    continue
+
+            content = '\n\n'.join(content_parts)
+            logger.info(f"Excel 解析完成 - 工作表: {len(sheet_names)}, 总行数: {total_rows}, 内容长度: {len(content)}")
+
+            return [LangChainDocument(
+                page_content=content,
+                metadata={
+                    "source": document.title,
+                    "document_id": str(document.id),
+                    "document_type": document.document_type,
+                    "title": document.title,
+                    "file_path": file_path,
+                    "structured_parsing": True,
+                    "sheet_count": len(sheet_names),
+                    "total_rows": total_rows,
+                }
+            )]
+
+        except ImportError:
+            raise ValueError("需要安装 pandas 和 openpyxl: pip install pandas openpyxl xlrd")
+        except Exception as e:
+            logger.error(f"Excel 解析失败: {e}")
+            raise ValueError(f"无法解析 Excel 文件: {e}")
+
+    def _dataframe_to_markdown(self, df) -> str:
+        """将 DataFrame 转换为 Markdown 表格"""
+        if df.empty:
+            return ""
+
+        def _sanitize(text):
+            """清理单元格文本"""
+            text = str(text).replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
+            text = ' '.join(text.split())
+            return text.replace('|', '\\|')
+
+        # 表头
+        headers = [_sanitize(col) for col in df.columns]
+        header_row = ' | '.join(headers)
+        separator = ' | '.join(['---'] * len(headers))
+
+        # 数据行
+        data_rows = []
+        for _, row in df.iterrows():
+            cells = [_sanitize(cell) for cell in row]
+            data_rows.append(' | '.join(cells))
+
+        # 组合表格
+        table_parts = [header_row, separator] + data_rows
+        return '\n'.join(table_parts)
 
 
 class VectorStoreManager:

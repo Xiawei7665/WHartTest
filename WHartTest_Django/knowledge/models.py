@@ -128,6 +128,9 @@ class Document(models.Model):
     DOCUMENT_TYPES = [
         ('pdf', 'PDF'),
         ('docx', 'Word文档'),
+        ('doc', 'Word文档(旧版)'),
+        ('xlsx', 'Excel表格'),
+        ('xls', 'Excel表格(旧版)'),
         ('pptx', 'PowerPoint'),
         ('txt', '文本文件'),
         ('md', 'Markdown'),
