@@ -215,12 +215,12 @@
                   <div class="column-bars">
                     <div
                       class="column-bar passed"
-                      :style="{ height: getBarHeight(day.passed) + 'px' }"
+                      :style="{ height: getBarHeight(day.passed) }"
                       :title="`通过: ${day.passed}`"
                     ></div>
                     <div
                       class="column-bar failed"
-                      :style="{ height: getBarHeight(day.failed) + 'px' }"
+                      :style="{ height: getBarHeight(day.failed) }"
                       :title="`失败: ${day.failed}`"
                     ></div>
                   </div>
@@ -281,12 +281,13 @@ const reviewStatusData = computed(() => {
   ];
 });
 
-const getBarHeight = (value: number): number => {
+const getBarHeight = (value: number): string => {
   const maxValue = Math.max(
     ...(statistics.value?.execution_trend?.daily_7d?.map(d => Math.max(d.passed, d.failed)) || [1])
   );
-  if (maxValue === 0) return 4;
-  return Math.max(4, (value / maxValue) * 80);
+  if (maxValue === 0) return '4px';
+  const height = Math.max(4, (value / maxValue) * 80);
+  return height + 'px';
 };
 
 const formatDate = (dateStr: string): string => {
@@ -413,10 +414,10 @@ onMounted(() => {
 
 .overview-sub {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: space-between;
-  gap: 6px 0;
-  font-size: 13px;
+  gap: 4px;
+  font-size: 12px;
   color: #86909c;
 }
 
@@ -424,6 +425,7 @@ onMounted(() => {
   flex: 1;
   text-align: center;
   min-width: 0;
+  white-space: nowrap;
 }
 
 .sub-item.approved, .sub-item.active, .sub-item.passed { color: #52c41a; }
@@ -656,11 +658,27 @@ onMounted(() => {
 /* 趋势图 */
 .trend-section {
   margin-top: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 180px;
+}
+
+.trend-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .trend-panel .panel-header {
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.trend-panel .panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .trend-summary {
@@ -681,7 +699,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  height: 100px;
+  flex: 1;
+  min-height: 100px;
   padding: 10px 0;
 }
 

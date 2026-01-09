@@ -314,16 +314,16 @@ class ProjectViewSet(BaseModelViewSet):
             failed=Sum('failed_count'),
         )
 
-        # 5. MCP统计（当前用户的全局MCP配置）
+        # 5. MCP统计（全局共享的MCP配置）
         mcp_stats = {
-            'total': RemoteMCPConfig.objects.filter(owner=request.user).count(),
-            'active': RemoteMCPConfig.objects.filter(owner=request.user, is_active=True).count(),
+            'total': RemoteMCPConfig.objects.count(),
+            'active': RemoteMCPConfig.objects.filter(is_active=True).count(),
         }
 
-        # 6. Skills统计（当前用户创建的全局Skills）
+        # 6. Skills统计（全局共享的Skills）
         skill_stats = {
-            'total': Skill.objects.filter(creator=request.user).count(),
-            'active': Skill.objects.filter(creator=request.user, is_active=True).count(),
+            'total': Skill.objects.count(),
+            'active': Skill.objects.filter(is_active=True).count(),
         }
 
         # 构建响应数据
