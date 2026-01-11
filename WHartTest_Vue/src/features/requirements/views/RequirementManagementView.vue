@@ -758,7 +758,6 @@ projectStore.$subscribe((_mutation, state) => {
 .requirement-management {
   padding: 24px;
   background: transparent; /* 使用主布局的背景 */
-  min-height: 100%; /* 适应父容器 */
 }
 
 .filter-section {
