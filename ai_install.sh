@@ -28,11 +28,12 @@ APPROVE_ALL=0
 LOG_DIR="${AI_INSTALL_LOG_DIR:-data/logs}"
 LOG_FILE=""
 DEBUG_LOG="${AI_INSTALL_DEBUG:-0}"
-MAX_TOKENS="${AI_INSTALL_MAX_TOKENS:-1024}"
+MAX_TOKENS="${AI_INSTALL_MAX_TOKENS:-8192}"
 TEMPERATURE="${AI_INSTALL_TEMPERATURE:-0.7}"
 INCLUDE_TEMPERATURE="${AI_INSTALL_INCLUDE_TEMPERATURE:-1}"
 TIMEOUT="${AI_INSTALL_TIMEOUT:-120}"
 CONNECT_TIMEOUT="${AI_INSTALL_CONNECT_TIMEOUT:-30}"
+STREAM_MODE="${AI_INSTALL_STREAM:-1}"
 
 # 临时目录（兼容 Linux/macOS/Git Bash/WSL）
 TMP_DIR="${TMPDIR:-/tmp}"
@@ -600,6 +601,40 @@ if isinstance(content,str):
     printf '%s' "$out"
 }
 
+# 从 SSE 流式响应的单行中提取 delta.content（优化：优先用纯 bash，避免频繁启动外部进程）
+extract_stream_delta() {
+    local line="$1"
+
+    # 跳过空行和非 data 行
+    [[ ! "$line" =~ ^data:\ *.+ ]] && return 0
+
+    # 去掉 "data: " 前缀
+    local json="${line#data: }"
+
+    # 处理 [DONE] 信号
+    [ "$json" = "[DONE]" ] && return 0
+
+    # 快速路径：用 bash 正则直接提取 "content":"..."
+    # 匹配模式：delta 后面的 content 字段
+    if [[ "$json" =~ \"content\":\"([^\"\\]*)\" ]]; then
+        printf '%s' "${BASH_REMATCH[1]}"
+        return 0
+    fi
+
+    # 处理 content 为 null 或不存在的情况
+    if [[ "$json" =~ \"content\":null ]] || [[ ! "$json" =~ \"content\" ]]; then
+        return 0
+    fi
+
+    # 复杂情况（含转义字符）：回退到 jq
+    if command -v jq >/dev/null 2>&1; then
+        local out
+        out=$(printf '%s' "$json" | jq -r '(.choices[0].delta.content // empty)' 2>/dev/null || true)
+        [ "$out" = "null" ] && out=""
+        printf '%s' "$out"
+    fi
+}
+
 extract_error_message() {
     local body="$1"
     local out=""
@@ -683,19 +718,25 @@ call_ai() {
     # 添加当前用户消息
     messages="$messages,{\"role\":\"user\",\"content\":\"$(json_escape "$sanitized_user_message")\"}]"
 
+    # 构建 payload（根据 STREAM_MODE 决定是否启用流式）
+    local stream_flag="false"
+    [ "$STREAM_MODE" = "1" ] && stream_flag="true"
+
     local payload=""
     if [ "${INCLUDE_TEMPERATURE:-1}" = "1" ]; then
         payload="{
                 \"model\": \"$MODEL_NAME\",
                 \"messages\": $messages,
                 \"temperature\": $TEMPERATURE,
-                \"max_tokens\": $MAX_TOKENS
+                \"max_tokens\": $MAX_TOKENS,
+                \"stream\": $stream_flag
             }"
     else
         payload="{
                 \"model\": \"$MODEL_NAME\",
                 \"messages\": $messages,
-                \"max_tokens\": $MAX_TOKENS
+                \"max_tokens\": $MAX_TOKENS,
+                \"stream\": $stream_flag
             }"
     fi
 
@@ -703,89 +744,152 @@ call_ai() {
     printf '%s' "$payload" > "$payload_file"
 
     if [ -n "$LOG_FILE" ] && [ "$DEBUG_LOG" = "1" ]; then
-        log_line "DEBUG" "AI request: url=$API_URL/chat/completions model=$MODEL_NAME payload=$(redact_secrets "$(cat "$payload_file")")"
-    fi
-    
-    # 调用 API（Git Bash 兼容：避免把 JSON 当作命令行参数直接传给 curl.exe）
-    local response=$(curl -sS --http1.1 -w "\n%{http_code}" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$TIMEOUT" -X POST "$API_URL/chat/completions" \
-        -H "Authorization: Bearer $API_KEY" \
-        -H "Content-Type: application/json" \
-        -H "Expect:" \
-        --data-binary @"$payload_file" 2>/dev/null)
-
-    rm -f "$payload_file" 2>/dev/null || true
-
-    local http_code
-    http_code=$(echo "$response" | tail -n1)
-    local body
-    body=$(echo "$response" | head -n -1)
-
-    if [ -n "$LOG_FILE" ] && [ "$DEBUG_LOG" = "1" ]; then
-        log_line "DEBUG" "AI response: http_code=$http_code body=$(echo "$body" | tr '\n' ' ')"
+        log_line "DEBUG" "AI request: url=$API_URL/chat/completions model=$MODEL_NAME stream=$stream_flag payload=$(redact_secrets "$(cat "$payload_file")")"
     fi
 
-    # 兼容回退：部分接口会对 temperature 或较大的 max_tokens 返回 400（但不给详细 message）
-    if [ "$http_code" = "400" ]; then
-        local fallback_payload="{
-                \"model\": \"$MODEL_NAME\",
-                \"messages\": $messages,
-                \"max_tokens\": 512
-            }"
-        local fallback_payload_file="$TMP_DIR/ai_install_payload_fallback_$$.json"
-        printf '%s' "$fallback_payload" > "$fallback_payload_file"
-        if [ -n "$LOG_FILE" ] && [ "$DEBUG_LOG" = "1" ]; then
-            log_line "DEBUG" "AI fallback request (no temperature, max_tokens=512): payload=$(redact_secrets "$(cat "$fallback_payload_file")")"
-        fi
+    local ai_message=""
 
-        local fallback_response
-        fallback_response=$(curl -sS --http1.1 -w "\n%{http_code}" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$TIMEOUT" -X POST "$API_URL/chat/completions" \
+    # 流式模式
+    if [ "$STREAM_MODE" = "1" ]; then
+        local stream_error=""
+        local http_code=""
+        local temp_response="$TMP_DIR/ai_install_stream_$$.tmp"
+
+        # 使用 curl 流式读取，--no-buffer 确保实时输出
+        curl -sS --no-buffer --http1.1 --connect-timeout "$CONNECT_TIMEOUT" --max-time "$TIMEOUT" \
+            -w "\n__HTTP_CODE__:%{http_code}" \
+            -X POST "$API_URL/chat/completions" \
             -H "Authorization: Bearer $API_KEY" \
             -H "Content-Type: application/json" \
             -H "Expect:" \
-            --data-binary @"$fallback_payload_file" 2>/dev/null)
-        rm -f "$fallback_payload_file" 2>/dev/null || true
+            --data-binary @"$payload_file" 2>/dev/null > "$temp_response"
 
-        local fallback_code
-        fallback_code=$(echo "$fallback_response" | tail -n1)
-        local fallback_body
-        fallback_body=$(echo "$fallback_response" | head -n -1)
+        rm -f "$payload_file" 2>/dev/null || true
+
+        # 提取 HTTP 状态码
+        http_code=$(grep "__HTTP_CODE__:" "$temp_response" 2>/dev/null | tail -n1 | sed 's/.*__HTTP_CODE__://')
+        [ -z "$http_code" ] && http_code="000"
+
+        if [ "$http_code" != "200" ]; then
+            local body=$(grep -v "__HTTP_CODE__:" "$temp_response" 2>/dev/null | tr '\n' ' ')
+            rm -f "$temp_response" 2>/dev/null || true
+            print_color "$RED" "❌ AI 调用失败"
+            local error_msg=$(extract_error_message "$body")
+            if [ -n "$error_msg" ]; then
+                print_color "$YELLOW" "错误信息: $error_msg"
+            else
+                print_color "$YELLOW" "HTTP 状态码: $http_code"
+            fi
+            log_line "ERROR" "AI stream call failed: http_code=$http_code body=$body"
+            print_color "$CYAN" "日志已写入: $LOG_FILE"
+            return 1
+        fi
+
+        # 解析流式响应并实时输出
+        printf '%b' "$CYAN" >&2
+        while IFS= read -r line || [ -n "$line" ]; do
+            # 跳过 HTTP 状态码标记行
+            [[ "$line" =~ __HTTP_CODE__: ]] && continue
+            # 去除可能的 \r
+            line="${line%$'\r'}"
+            # 提取 delta content
+            local delta=$(extract_stream_delta "$line")
+            if [ -n "$delta" ]; then
+                printf '%s' "$delta" >&2
+                ai_message="${ai_message}${delta}"
+            fi
+        done < "$temp_response"
+        printf '%b\n' "$NC" >&2
+
+        rm -f "$temp_response" 2>/dev/null || true
+
+        if [ -z "$ai_message" ]; then
+            print_color "$RED" "❌ AI 调用失败"
+            log_line "ERROR" "AI stream returned empty content"
+            print_color "$CYAN" "日志已写入: $LOG_FILE"
+            return 1
+        fi
+
+    # 非流式模式（原逻辑）
+    else
+        local response=$(curl -sS --http1.1 -w "\n%{http_code}" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$TIMEOUT" -X POST "$API_URL/chat/completions" \
+            -H "Authorization: Bearer $API_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Expect:" \
+            --data-binary @"$payload_file" 2>/dev/null)
+
+        rm -f "$payload_file" 2>/dev/null || true
+
+        local http_code
+        http_code=$(echo "$response" | tail -n1)
+        local body
+        body=$(echo "$response" | head -n -1)
 
         if [ -n "$LOG_FILE" ] && [ "$DEBUG_LOG" = "1" ]; then
-            log_line "DEBUG" "AI fallback response: http_code=$fallback_code body=$(echo "$fallback_body" | tr '\n' ' ')"
+            log_line "DEBUG" "AI response: http_code=$http_code body=$(echo "$body" | tr '\n' ' ')"
         fi
 
-        if [ "$fallback_code" = "200" ]; then
-            http_code="$fallback_code"
-            body="$fallback_body"
-        fi
-    fi
+        # 兼容回退：部分接口会对 temperature 或较大的 max_tokens 返回 400
+        if [ "$http_code" = "400" ]; then
+            local fallback_payload="{
+                    \"model\": \"$MODEL_NAME\",
+                    \"messages\": $messages,
+                    \"max_tokens\": 512
+                }"
+            local fallback_payload_file="$TMP_DIR/ai_install_payload_fallback_$$.json"
+            printf '%s' "$fallback_payload" > "$fallback_payload_file"
+            if [ -n "$LOG_FILE" ] && [ "$DEBUG_LOG" = "1" ]; then
+                log_line "DEBUG" "AI fallback request (no temperature, max_tokens=512): payload=$(redact_secrets "$(cat "$fallback_payload_file")")"
+            fi
 
-    if [ "$http_code" != "200" ]; then
-        print_color "$RED" "❌ AI 调用失败"
-        local error_msg=""
-        error_msg=$(extract_error_message "$body")
-        if [ -n "$error_msg" ]; then
-            print_color "$YELLOW" "错误信息: $error_msg"
-        else
-            print_color "$YELLOW" "HTTP 状态码: $http_code"
+            local fallback_response
+            fallback_response=$(curl -sS --http1.1 -w "\n%{http_code}" --connect-timeout "$CONNECT_TIMEOUT" --max-time "$TIMEOUT" -X POST "$API_URL/chat/completions" \
+                -H "Authorization: Bearer $API_KEY" \
+                -H "Content-Type: application/json" \
+                -H "Expect:" \
+                --data-binary @"$fallback_payload_file" 2>/dev/null)
+            rm -f "$fallback_payload_file" 2>/dev/null || true
+
+            local fallback_code
+            fallback_code=$(echo "$fallback_response" | tail -n1)
+            local fallback_body
+            fallback_body=$(echo "$fallback_response" | head -n -1)
+
+            if [ -n "$LOG_FILE" ] && [ "$DEBUG_LOG" = "1" ]; then
+                log_line "DEBUG" "AI fallback response: http_code=$fallback_code body=$(echo "$fallback_body" | tr '\n' ' ')"
+            fi
+
+            if [ "$fallback_code" = "200" ]; then
+                http_code="$fallback_code"
+                body="$fallback_body"
+            fi
         fi
-        log_line "ERROR" "AI call failed: http_code=$http_code url=$API_URL/chat/completions model=$MODEL_NAME body=$(echo "$body" | tr '\n' ' ')"
-        print_color "$CYAN" "日志已写入: $LOG_FILE"
-        if [ "$DEBUG_LOG" != "1" ]; then
-            print_color "$CYAN" "可用 AI_INSTALL_DEBUG=1 重新运行以记录请求 payload（已脱敏）"
+
+        if [ "$http_code" != "200" ]; then
+            print_color "$RED" "❌ AI 调用失败"
+            local error_msg=""
+            error_msg=$(extract_error_message "$body")
+            if [ -n "$error_msg" ]; then
+                print_color "$YELLOW" "错误信息: $error_msg"
+            else
+                print_color "$YELLOW" "HTTP 状态码: $http_code"
+            fi
+            log_line "ERROR" "AI call failed: http_code=$http_code url=$API_URL/chat/completions model=$MODEL_NAME body=$(echo "$body" | tr '\n' ' ')"
+            print_color "$CYAN" "日志已写入: $LOG_FILE"
+            if [ "$DEBUG_LOG" != "1" ]; then
+                print_color "$CYAN" "可用 AI_INSTALL_DEBUG=1 重新运行以记录请求 payload（已脱敏）"
+            fi
+            return 1
         fi
-        return 1
-    fi
-    
-    # 提取 AI 回复
-    local ai_message
-    ai_message=$(extract_ai_content "$body")
-    
-    if [ -z "$ai_message" ]; then
-        print_color "$RED" "❌ AI 调用失败"
-        log_line "ERROR" "AI call returned empty content: body=$(echo "$body" | tr '\n' ' ')"
-        print_color "$CYAN" "日志已写入: $LOG_FILE"
-        return 1
+
+        ai_message=$(extract_ai_content "$body")
+
+        if [ -z "$ai_message" ]; then
+            print_color "$RED" "❌ AI 调用失败"
+            log_line "ERROR" "AI call returned empty content: body=$(echo "$body" | tr '\n' ' ')"
+            print_color "$CYAN" "日志已写入: $LOG_FILE"
+            return 1
+        fi
     fi
     
     # 保存对话历史
