@@ -1,6 +1,6 @@
 """
 UI自动化执行器 - WebSocket客户端
-参考 MangoTestingPlatform 的 WebSocketClient 设计
+
 """
 
 import asyncio

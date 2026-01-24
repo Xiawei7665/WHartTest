@@ -1,6 +1,6 @@
 """
 UI自动化 WebSocket Consumer
-参考 MangoTestingPlatform 的 ChatConsumer 设计
+
 
 提供两个WebSocket端点：
 - /ws/ui/web/ - 前端连接，用于接收执行结果和状态更新

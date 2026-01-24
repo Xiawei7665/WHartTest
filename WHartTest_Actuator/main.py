@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 """
 UI自动化执行器 - 主入口
-参考 MangoTestingPlatform 的 MangoActuator 设计
 
 启动方式:
     # 使用配置文件

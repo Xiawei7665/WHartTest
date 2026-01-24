@@ -4,7 +4,6 @@
 
 ## 架构设计
 
-参考 [MangoTestingPlatform](https://github.com/maopengg/MangoTestingPlatform) 的执行器设计：
 
 ```
 ┌─────────────┐     WebSocket      ┌──────────────────┐

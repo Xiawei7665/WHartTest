@@ -2,7 +2,6 @@
 """
 UI 自动化数据模型
 
-参考 MangoTestingPlatform 设计
 核心层级：
 - UiModule: 模块管理
 - UiPage: 页面管理

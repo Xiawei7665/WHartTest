@@ -288,6 +288,20 @@ class UiPublicDataViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(creator=self.request.user)
 
+    @action(detail=False, methods=['get'], url_path='by-project/(?P<project_id>[^/.]+)')
+    def by_project(self, request, project_id=None):
+        """获取指定项目的所有启用公共数据（供执行器使用）
+        
+        返回格式（经 UnifiedResponseRenderer 包装后）:
+        {"status": "success", "code": 200, "data": [{"key": "username", "value": "admin", "type": 0}, ...]}
+        """
+        public_data = UiPublicData.objects.filter(
+            project_id=project_id,
+            is_enabled=True
+        ).values('key', 'value', 'type')
+        # 直接返回列表，由 UnifiedResponseRenderer 统一包装为标准格式
+        return Response(list(public_data))
+
 
 class UiEnvironmentConfigViewSet(viewsets.ModelViewSet):
     """环境配置管理视图"""

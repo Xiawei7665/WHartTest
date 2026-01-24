@@ -1,6 +1,5 @@
 /**
  * UI 自动化类型定义
- * 基于 MangoTestingPlatform 设计
  */
 
 /** 基础时间戳字段 */

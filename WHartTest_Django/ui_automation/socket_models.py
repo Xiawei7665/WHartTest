@@ -1,6 +1,5 @@
 """
 UI自动化 WebSocket 消息模型
-参考 MangoTestingPlatform 的消息结构设计
 """
 
 from enum import IntEnum

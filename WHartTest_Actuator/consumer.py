@@ -1,6 +1,5 @@
 """
 UI自动化执行器 - 任务消费者
-参考 MangoTestingPlatform 的 SocketConsumer 设计
 """
 
 import asyncio
@@ -17,6 +16,7 @@ from websocket_client import WebSocketClient
 from executor import (
     PlaywrightExecutor, StepConfig, PageStepConfig, TestCaseConfig
 )
+from data_processor import reset_data_processor, DataProcessor
 
 logger = logging.getLogger('actuator')
 
@@ -318,8 +318,12 @@ class TaskConsumer:
                 base_url = env_config.get('base_url', '') or ''
                 logger.info(f"使用环境配置: {env_config.get('name')}, base_url: {base_url}")
         
-        # 构建配置，传入 base_url
-        config = self._build_page_step_config(page_step_data, base_url)
+        # 初始化数据处理器，加载项目公共变量
+        project_id = page_step_data.get('project')
+        data_processor = await self._init_data_processor(project_id)
+        
+        # 构建配置，传入 base_url 和数据处理器
+        config = self._build_page_step_config(page_step_data, base_url, data_processor)
         
         # 执行（使用同一浏览器会话）
         logger.info(f"开始执行页面步骤: {config.page_name}")
@@ -390,16 +394,19 @@ class TaskConsumer:
         
         # 获取环境配置
         env_config = None
+        project_id = case_data.get('project')
         if env_config_id:
             env_config = await self._fetch_env_config(env_config_id)
         else:
             # 尝试获取项目的默认环境配置
-            project_id = case_data.get('project')
             if project_id:
                 env_config = await self._fetch_default_env_config(project_id)
         
-        # 构建配置
-        config = self._build_test_case_config(case_data, env_config)
+        # 初始化数据处理器，加载项目公共变量
+        data_processor = await self._init_data_processor(project_id)
+        
+        # 构建配置（传入数据处理器进行变量替换）
+        config = self._build_test_case_config(case_data, env_config, data_processor)
         
         # 执行
         logger.info(f"开始执行用例: {config.case_name}")
@@ -476,8 +483,39 @@ class TaskConsumer:
                 return items[0]
         return None
 
-    def _build_page_step_config(self, data: dict, base_url: str = '') -> PageStepConfig:
-        """构建页面步骤配置"""
+    async def _fetch_public_data(self, project_id: int) -> list[dict]:
+        """从API获取项目的公共数据（用于变量替换）"""
+        result = await self._api_get(f"/api/ui-automation/public-data/by-project/{project_id}/")
+        logger.debug(f"获取公共数据原始结果 (project_id={project_id}): type={type(result)}, value={result}")
+        if result and isinstance(result, list):
+            logger.debug(f"公共数据是列表，长度: {len(result)}")
+            return result
+        logger.warning(f"公共数据格式不正确: type={type(result)}")
+        return []
+
+    async def _init_data_processor(self, project_id: int) -> DataProcessor:
+        """初始化数据处理器，加载项目公共变量"""
+        data_processor = reset_data_processor()
+        
+        if project_id:
+            public_data = await self._fetch_public_data(project_id)
+            logger.info(f"已加载 {len(public_data)} 个公共变量")
+            if public_data:
+                data_processor.load_public_data(public_data)
+                logger.debug(f"变量缓存: {data_processor.get_all()}")
+        else:
+            logger.warning("project_id 为空，无法加载公共变量")
+        
+        return data_processor
+
+    def _build_page_step_config(self, data: dict, base_url: str = '', data_processor: Optional[DataProcessor] = None) -> PageStepConfig:
+        """构建页面步骤配置
+        
+        Args:
+            data: 页面步骤数据
+            base_url: 环境基础URL
+            data_processor: 变量处理器，用于替换 ${{变量名}} 语法
+        """
         steps = []
         
         for detail in data.get('step_details', []):
@@ -488,11 +526,34 @@ class TaskConsumer:
             else:
                 input_value = str(ope_value) if ope_value else ''
             
+            # 定位器值也可能包含变量
+            locator_value = detail.get('locator_value', '')
+            
+            # 变量替换：替换 input_value 和 locator_value 中的 ${{变量名}}
+            if data_processor:
+                original_input = input_value
+                input_value = data_processor.replace(input_value)
+                if original_input != input_value:
+                    logger.info(f"变量替换: '{original_input}' -> '{input_value}'")
+                
+                original_locator = locator_value
+                locator_value = data_processor.replace(locator_value)
+                if original_locator != locator_value:
+                    logger.info(f"变量替换 (定位器): '{original_locator}' -> '{locator_value}'")
+                
+                # 确保替换后的值是字符串类型
+                if not isinstance(input_value, str):
+                    input_value = str(input_value)
+                if not isinstance(locator_value, str):
+                    locator_value = str(locator_value)
+            else:
+                logger.warning(f"data_processor 为 None，跳过变量替换")
+            
             steps.append(StepConfig(
                 step_id=detail.get('id', 0),
                 operation_type=detail.get('ope_key', ''),  # 操作类型如 click, type
                 locator_type=detail.get('locator_type', 'xpath'),  # 定位方式
-                locator_value=detail.get('locator_value', ''),  # 定位表达式
+                locator_value=locator_value,  # 定位表达式
                 input_value=input_value,  # 输入值
                 description=detail.get('element_name', ''),  # 元素名称作为描述
                 wait_time=detail.get('wait_time', 0),
@@ -501,6 +562,12 @@ class TaskConsumer:
         # 页面URL优先使用步骤自带的，否则使用环境配置的base_url
         page_url = data.get('page_url', '') or base_url
         
+        # URL也可能包含变量
+        if data_processor and page_url:
+            page_url = data_processor.replace(page_url)
+            if not isinstance(page_url, str):
+                page_url = str(page_url)
+        
         return PageStepConfig(
             page_step_id=data.get('id', 0),
             page_url=page_url,
@@ -508,8 +575,14 @@ class TaskConsumer:
             steps=steps
         )
     
-    def _build_test_case_config(self, data: dict, env_config: Optional[dict] = None) -> TestCaseConfig:
-        """构建测试用例配置"""
+    def _build_test_case_config(self, data: dict, env_config: Optional[dict] = None, data_processor: Optional[DataProcessor] = None) -> TestCaseConfig:
+        """构建测试用例配置
+        
+        Args:
+            data: 用例数据
+            env_config: 环境配置
+            data_processor: 变量处理器
+        """
         # 从环境配置获取base_url
         base_url = ''
         if env_config:
@@ -521,7 +594,7 @@ class TaskConsumer:
         for case_step in data.get('case_step_details', []):
             page_step_data = case_step.get('page_step', {})
             if page_step_data:
-                page_steps.append(self._build_page_step_config(page_step_data, base_url))
+                page_steps.append(self._build_page_step_config(page_step_data, base_url, data_processor))
         
         return TestCaseConfig(
             case_id=data.get('id', 0),
