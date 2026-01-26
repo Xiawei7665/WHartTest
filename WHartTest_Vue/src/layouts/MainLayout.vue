@@ -88,6 +88,11 @@
             <a href="#" @click="checkProjectAndNavigate($event, '/ai-diagram')">智能图表</a>
           </a-menu-item>
 
+          <a-menu-item key="ui-automation" v-if="hasAutomationScriptsPermission">
+            <template #icon><icon-computer /></template>
+            <a href="#" @click="checkProjectAndNavigate($event, '/ui-automation')">UI自动化</a>
+          </a-menu-item>
+
           <!-- 测试管理子菜单 -->
           <a-sub-menu key="test-management" v-if="hasTestManagementMenuItems">
             <template #icon><icon-experiment /></template>
@@ -97,10 +102,6 @@
             <a-menu-item key="testcases" v-if="hasTestcasesPermission">
               <template #icon><icon-code-block /></template>
               <a href="#" @click="checkProjectAndNavigate($event, '/testcases')">用例管理</a>
-            </a-menu-item>
-            <a-menu-item key="ui-automation" v-if="hasAutomationScriptsPermission">
-              <template #icon><icon-computer /></template>
-              <a href="#" @click="checkProjectAndNavigate($event, '/ui-automation')">UI自动化</a>
             </a-menu-item>
             <a-menu-item key="automation-scripts" v-if="hasAutomationScriptsPermission">
               <template #icon><icon-robot /></template>
