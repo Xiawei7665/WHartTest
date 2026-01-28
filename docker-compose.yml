@@ -210,7 +210,7 @@ services:
 
   # Xinference 模型推理服务（Embedding + Reranker）
   xinference:
-    image: xprobe/xinference:latest-cpu
+    image: docker.1ms.run/xprobe/xinference:latest-cpu
     container_name: wharttest-xinference
     ports:
       - "8917:9997"
