@@ -3,13 +3,13 @@
 
 [server]
 # WebSocket服务器地址
-ws_url = "ws://localhost:8000/ws/ui/actuator/"
+ws_url = "ws://127.0.0.1:8000/ws/ui/actuator/"
 # API服务器地址
-api_url = "http://localhost:8000"
+api_url = "http://127.0.0.1:8000"
 # 是否启用 GUI 登录窗口（需要安装 PySide6）
-# true = 使用图形界面登录，适合本地开发调试
+# true = 使用图形界面登录（推荐）
 # false = 使用配置文件中的账号密码，适合服务器无头部署
-use_gui = false
+use_gui = true
 # API认证用户名（仅 use_gui=false 时有效）
 api_username = "admin"
 # API认证密码（仅 use_gui=false 时有效）

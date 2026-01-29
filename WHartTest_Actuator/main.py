@@ -10,6 +10,9 @@ UI自动化执行器 - 主入口
     # 使用命令行参数（覆盖配置文件）
     python main.py --server ws://localhost:8000/ws/ui/actuator/
     python main.py --server ws://localhost:8000/ws/ui/actuator/ --id my-actuator
+    
+    # 打包成 exe 后运行
+    WHartTest_Actuator.exe --gui
 """
 
 import argparse
@@ -21,8 +24,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# 添加当前目录到路径
-sys.path.insert(0, str(Path(__file__).parent))
+# 添加当前目录到路径（支持打包后运行）
+if getattr(sys, 'frozen', False):
+    # 打包后的 exe
+    _base_path = Path(sys.executable).parent
+else:
+    _base_path = Path(__file__).parent
+sys.path.insert(0, str(_base_path))
+
+# 导入浏览器安装模块（必须在其他模块之前）
+from browser_installer import setup_playwright_env, ensure_browser
 
 from websocket_client import WebSocketClient
 from consumer import TaskConsumer
@@ -41,9 +52,10 @@ class Config:
     
     def __init__(self):
         # 默认配置
-        self.ws_url = "ws://localhost:8000/ws/ui/actuator/"
-        self.api_url = "http://localhost:8000"
-        self.use_gui = False  # 是否使用 GUI 登录
+        self.ws_url = "ws://127.0.0.1:8000/ws/ui/actuator/"
+        self.api_url = "http://127.0.0.1:8000"
+        # 打包成 exe 时默认启用 GUI 登录，开发模式默认关闭
+        self.use_gui = getattr(sys, 'frozen', False)
         self.api_username = "admin"
         self.api_password = "admin123"
         self.actuator_id: str | None = None
@@ -208,6 +220,12 @@ def parse_args():
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
         help='日志级别 (覆盖配置文件)'
     )
+    parser.add_argument(
+        '--skip-browser-check',
+        action='store_true',
+        default=False,
+        help='跳过浏览器安装检查'
+    )
     return parser.parse_args()
 
 
@@ -223,6 +241,14 @@ async def main():
     # 配置日志
     setup_logging(config.log_level, config.log_file)
     logger = logging.getLogger('actuator')
+    
+    # 检查并安装浏览器（首次运行时需要）
+    if not args.skip_browser_check:
+        logger.info("检查浏览器安装状态...")
+        if not ensure_browser(config.browser_type):
+            logger.error(f"浏览器 {config.browser_type} 安装失败，请检查网络连接后重试")
+            logger.error("或者手动运行: playwright install chromium")
+            sys.exit(1)
     
     # GUI 登录模式
     if config.use_gui:
@@ -243,6 +269,14 @@ async def main():
         
         # 使用 GUI 登录获取的凭证更新配置
         config.api_url = login_result['api_url']
+        # 根据 API URL 自动生成 WebSocket URL
+        api_url = login_result['api_url'].rstrip('/')
+        if api_url.startswith('https://'):
+            ws_url = api_url.replace('https://', 'wss://', 1)
+        else:
+            ws_url = api_url.replace('http://', 'ws://', 1)
+        config.ws_url = f"{ws_url}/ws/ui/actuator/"
+        
         config.api_username = login_result['username']
         config.api_password = login_result['password']
         # 更新执行器名称
@@ -294,16 +328,20 @@ async def main():
         api_password=config.api_password
     )
     
-    # 设置信号处理
-    loop = asyncio.get_event_loop()
-    
-    def signal_handler():
-        logger.info("收到停止信号，正在关闭...")
-        consumer.stop()
-        asyncio.create_task(ws_client.disconnect())
-    
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, signal_handler)
+    # 设置信号处理（Windows 不支持 add_signal_handler，使用 try/except 处理）
+    if sys.platform != 'win32':
+        loop = asyncio.get_event_loop()
+        
+        def signal_handler():
+            logger.info("收到停止信号，正在关闭...")
+            consumer.stop()
+            asyncio.create_task(ws_client.disconnect())
+        
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, signal_handler)
+            except NotImplementedError:
+                pass
     
     try:
         await consumer.run()

@@ -99,6 +99,53 @@ python main.py \
 5. **执行测试**: 调用Playwright执行浏览器自动化
 6. **返回结果**: 通过WebSocket将执行结果发送回服务器
 
+## 打包成独立 EXE
+
+执行器支持打包成独立可执行文件，方便分发部署。
+
+### 安装打包依赖
+
+```bash
+# 使用 uv
+uv pip install pyinstaller
+
+# 或使用 pip
+pip install pyinstaller
+```
+
+### 执行打包
+
+```bash
+cd WHartTest_Actuator
+uv run python build_exe.py
+```
+
+### 输出目录
+
+```
+dist/WHartTest_Actuator/
+├── WHartTest_Actuator.exe  # 主程序
+├── config.toml             # 配置文件
+├── start.bat               # GUI模式启动脚本
+├── start_no_gui.bat        # 无GUI模式启动脚本
+├── browsers/               # Playwright浏览器（首次运行自动下载）
+└── data/                   # 数据目录
+    ├── browser/            # 浏览器用户数据
+    ├── screenshots/        # 截图
+    └── traces/             # Trace文件
+```
+
+### 使用说明
+
+1. 将 `dist/WHartTest_Actuator/` 目录复制到目标机器
+2. 编辑 `config.toml` 配置服务器地址和账号
+3. 双击 `start.bat` 启动（GUI模式）或 `start_no_gui.bat`（无GUI模式）
+
+**首次运行**：
+- 首次运行会自动下载 Chromium 浏览器（约 150MB）
+- 浏览器会下载到 `browsers/` 目录
+- 后续运行无需重复下载
+
 ## 分布式部署
 
 执行器支持分布式部署，多个执行器可以同时连接到一个Django后端：
@@ -120,11 +167,14 @@ python main.py --id actuator-machine-c --server ws://server:8000/ws/ui/actuator/
 
 ```
 WHartTest_Actuator/
-├── main.py           # 主入口，启动执行器
-├── models.py         # 消息模型定义
-├── websocket_client.py # WebSocket客户端
-├── consumer.py       # 任务消费者
-├── executor.py       # Playwright执行引擎
-├── requirements.txt  # 依赖
-└── README.md         # 说明文档
+├── main.py              # 主入口，启动执行器
+├── models.py            # 消息模型定义
+├── websocket_client.py  # WebSocket客户端
+├── consumer.py          # 任务消费者
+├── executor.py          # Playwright执行引擎
+├── browser_installer.py # 浏览器安装检查模块
+├── build_exe.py         # 打包脚本
+├── actuator.spec        # PyInstaller配置
+├── requirements.txt     # 依赖
+└── README.md            # 说明文档
 ```

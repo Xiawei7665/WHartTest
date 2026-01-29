@@ -127,6 +127,11 @@ class LoginWindow(QDialog):
         self.setFixedSize(920, 640)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setStyleSheet("background-color: #f0f2f5;")
+        
+        # 设置窗口图标
+        window_icon = self._get_window_icon()
+        if window_icon:
+            self.setWindowIcon(window_icon)
 
         # 主布局 - 水平分栏
         main_layout = QHBoxLayout(self)
@@ -335,47 +340,148 @@ class LoginWindow(QDialog):
             }
         """
 
-        # 服务器地址
-        self.api_url_input = QLineEdit()
-        self.api_url_input.setPlaceholderText("服务器地址")
-        self.api_url_input.setFixedHeight(50)
-        self.api_url_input.setStyleSheet(input_style)
-        login_tab_layout.addWidget(self.api_url_input)
-        login_tab_layout.addSpacing(14)
-
-        # 用户名
-        self.username_input = QLineEdit()
-        self.username_input.setPlaceholderText("请输入用户名")
-        self.username_input.setFixedHeight(50)
-        self.username_input.setStyleSheet(input_style)
-        login_tab_layout.addWidget(self.username_input)
-        login_tab_layout.addSpacing(14)
-
-        # 密码样式
-        password_style = """
-            QLineEdit {
+        # 服务器地址（带图标提示）
+        server_container = QFrame()
+        server_container.setStyleSheet("""
+            QFrame {
+                background-color: #fafafa;
                 border: 1px solid #e0e0e0;
                 border-radius: 10px;
-                padding: 14px 44px 14px 16px;
-                font-size: 15px;
-                background-color: #fafafa;
-                color: #333;
             }
-            QLineEdit:focus {
+            QFrame:focus-within {
                 border-color: #1976D2;
                 background-color: white;
             }
-            QLineEdit::placeholder {
-                color: #bbb;
+        """)
+        server_container.setFixedHeight(50)
+        server_layout = QHBoxLayout(server_container)
+        server_layout.setContentsMargins(12, 0, 12, 0)
+        server_layout.setSpacing(8)
+        
+        server_icon = QLabel("◉")
+        server_icon.setStyleSheet("font-size: 16px; color: #1976D2; background: transparent; border: none; font-weight: bold;")
+        server_icon.setFixedWidth(24)
+        server_layout.addWidget(server_icon)
+        
+        self.api_url_input = QLineEdit()
+        self.api_url_input.setPlaceholderText("服务器地址")
+        self.api_url_input.setStyleSheet("""
+            QLineEdit {
+                border: none;
+                background: transparent;
+                font-size: 15px;
+                color: #333;
+                padding: 0;
             }
-        """
+            QLineEdit::placeholder { color: #bbb; }
+        """)
+        server_layout.addWidget(self.api_url_input)
+        login_tab_layout.addWidget(server_container)
+        login_tab_layout.addSpacing(14)
+
+        # 用户名（带图标提示）
+        user_container = QFrame()
+        user_container.setStyleSheet("""
+            QFrame {
+                background-color: #fafafa;
+                border: 1px solid #e0e0e0;
+                border-radius: 10px;
+            }
+            QFrame:focus-within {
+                border-color: #1976D2;
+                background-color: white;
+            }
+        """)
+        user_container.setFixedHeight(50)
+        user_layout = QHBoxLayout(user_container)
+        user_layout.setContentsMargins(12, 0, 12, 0)
+        user_layout.setSpacing(8)
+        
+        user_icon = QLabel("●")
+        user_icon.setStyleSheet("font-size: 14px; color: #1976D2; background: transparent; border: none;")
+        user_icon.setFixedWidth(24)
+        user_layout.addWidget(user_icon)
+        
+        self.username_input = QLineEdit()
+        self.username_input.setPlaceholderText("请输入用户名")
+        self.username_input.setStyleSheet("""
+            QLineEdit {
+                border: none;
+                background: transparent;
+                font-size: 15px;
+                color: #333;
+                padding: 0;
+            }
+            QLineEdit::placeholder { color: #bbb; }
+        """)
+        user_layout.addWidget(self.username_input)
+        login_tab_layout.addWidget(user_container)
+        login_tab_layout.addSpacing(14)
+
+        # 密码（带图标提示）
+        password_container = QFrame()
+        password_container.setStyleSheet("""
+            QFrame {
+                background-color: #fafafa;
+                border: 1px solid #e0e0e0;
+                border-radius: 10px;
+            }
+            QFrame:focus-within {
+                border-color: #1976D2;
+                background-color: white;
+            }
+        """)
+        password_container.setFixedHeight(50)
+        password_layout = QHBoxLayout(password_container)
+        password_layout.setContentsMargins(12, 0, 12, 0)
+        password_layout.setSpacing(8)
+        
+        password_icon = QLabel("◆")
+        password_icon.setStyleSheet("font-size: 14px; color: #1976D2; background: transparent; border: none;")
+        password_icon.setFixedWidth(24)
+        password_layout.addWidget(password_icon)
+        
         self.password_input = QLineEdit()
         self.password_input.setPlaceholderText("请输入密码")
-        self.password_input.setFixedHeight(50)
         self.password_input.setEchoMode(QLineEdit.Password)
-        self.password_input.setStyleSheet(password_style)
-        self._add_password_toggle(self.password_input)
-        login_tab_layout.addWidget(self.password_input)
+        self.password_input.setStyleSheet("""
+            QLineEdit {
+                border: none;
+                background: transparent;
+                font-size: 15px;
+                color: #333;
+                padding: 0;
+            }
+            QLineEdit::placeholder { color: #bbb; }
+        """)
+        password_layout.addWidget(self.password_input)
+        
+        # 密码显示/隐藏按钮 - 使用圆形悬停效果
+        self._password_visible = False
+        self._password_toggle_btn = QPushButton("◎")
+        self._password_toggle_btn.setStyleSheet("""
+            QPushButton {
+                background: #f5f5f5;
+                border: none;
+                border-radius: 14px;
+                font-size: 14px;
+                color: #757575;
+                padding: 4px;
+            }
+            QPushButton:hover {
+                background: #e3f2fd;
+                color: #1976D2;
+            }
+            QPushButton:pressed {
+                background: #bbdefb;
+            }
+        """)
+        self._password_toggle_btn.setFixedSize(28, 28)
+        self._password_toggle_btn.setCursor(Qt.PointingHandCursor)
+        self._password_toggle_btn.clicked.connect(self._toggle_password_visibility)
+        password_layout.addWidget(self._password_toggle_btn)
+        
+        login_tab_layout.addWidget(password_container)
         login_tab_layout.addSpacing(16)
 
         # 状态标签
@@ -431,9 +537,14 @@ class LoginWindow(QDialog):
                 border: 1px solid #e0e0e0;
                 border-radius: 8px;
                 padding: 10px 12px;
+                padding-right: 32px;
                 font-size: 14px;
                 background-color: #fafafa;
                 color: #333;
+            }
+            QComboBox:hover {
+                border-color: #bdbdbd;
+                background-color: #f5f5f5;
             }
             QComboBox:focus {
                 border-color: #1976D2;
@@ -441,14 +552,30 @@ class LoginWindow(QDialog):
             }
             QComboBox::drop-down {
                 border: none;
-                width: 24px;
+                width: 28px;
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                border-top-right-radius: 8px;
+                border-bottom-right-radius: 8px;
+            }
+            QComboBox::drop-down:hover {
+                background: #e3f2fd;
             }
             QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 6px solid #666;
-                margin-right: 8px;
+                width: 12px;
+                height: 12px;
+                image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMiIgaGVpZ2h0PSIxMiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3NTc1NzUiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cG9seWxpbmUgcG9pbnRzPSI2IDkgMTIgMTUgMTggOSIvPjwvc3ZnPg==);
+            }
+            QComboBox::down-arrow:hover {
+                image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMiIgaGVpZ2h0PSIxMiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMxOTc2RDIiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cG9seWxpbmUgcG9pbnRzPSI2IDkgMTIgMTUgMTggOSIvPjwvc3ZnPg==);
+            }
+            QComboBox QAbstractItemView {
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                background-color: white;
+                selection-background-color: #e3f2fd;
+                selection-color: #1976D2;
+                padding: 4px;
             }
         """
         checkbox_style = """
@@ -464,6 +591,10 @@ class LoginWindow(QDialog):
                 border: 1px solid #d0d0d0;
                 background: #fafafa;
             }
+            QCheckBox::indicator:hover {
+                border-color: #1976D2;
+                background: #e3f2fd;
+            }
             QCheckBox::indicator:checked {
                 background: #1976D2;
                 border-color: #1976D2;
@@ -473,14 +604,64 @@ class LoginWindow(QDialog):
             QSpinBox {
                 border: 1px solid #e0e0e0;
                 border-radius: 8px;
-                padding: 10px 12px;
+                padding: 8px 12px;
+                padding-right: 36px;
                 font-size: 14px;
                 background-color: #fafafa;
                 color: #333;
             }
+            QSpinBox:hover {
+                border-color: #bdbdbd;
+            }
             QSpinBox:focus {
                 border-color: #1976D2;
                 background-color: white;
+            }
+            QSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 24px;
+                height: 18px;
+                background: #f5f5f5;
+                border: none;
+                border-left: 1px solid #e0e0e0;
+                border-top-right-radius: 7px;
+            }
+            QSpinBox::up-button:hover {
+                background: #e3f2fd;
+            }
+            QSpinBox::up-button:pressed {
+                background: #bbdefb;
+            }
+            QSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 24px;
+                height: 18px;
+                background: #f5f5f5;
+                border: none;
+                border-left: 1px solid #e0e0e0;
+                border-bottom-right-radius: 7px;
+            }
+            QSpinBox::down-button:hover {
+                background: #e3f2fd;
+            }
+            QSpinBox::down-button:pressed {
+                background: #bbdefb;
+            }
+            QSpinBox::up-arrow {
+                width: 0;
+                height: 0;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-bottom: 5px solid #666;
+            }
+            QSpinBox::down-arrow {
+                width: 0;
+                height: 0;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #666;
             }
         """
 
@@ -713,6 +894,44 @@ class LoginWindow(QDialog):
         # 回车键登录
         self.password_input.returnPressed.connect(self._on_login_clicked)
 
+    def closeEvent(self, event):
+        """处理窗口关闭事件"""
+        self.reject()
+        event.accept()
+
+    def reject(self):
+        """处理取消/关闭操作"""
+        super().reject()
+
+    def _toggle_password_visibility(self):
+        """切换密码可见性"""
+        self._password_visible = not self._password_visible
+        if self._password_visible:
+            self.password_input.setEchoMode(QLineEdit.Normal)
+            self._password_toggle_btn.setText("●")  # 实心圆 - 密码可见
+        else:
+            self.password_input.setEchoMode(QLineEdit.Password)
+            self._password_toggle_btn.setText("◎")  # 双圆 - 密码隐藏
+
+    def _get_window_icon(self) -> Optional[QIcon]:
+        """获取窗口图标"""
+        import sys
+        if getattr(sys, 'frozen', False):
+            base_path = Path(sys.executable).parent
+        else:
+            base_path = Path(__file__).parent.parent
+        
+        icon_paths = [
+            base_path / "data" / "WHartTest.png",
+            base_path / "WHartTest.png",
+            base_path.parent / "WHartTest_Vue" / "public" / "WHartTest.png",
+        ]
+        
+        for icon_path in icon_paths:
+            if icon_path.exists():
+                return QIcon(str(icon_path))
+        return None
+
     def _create_logo(self) -> QPixmap:
         """创建 Logo - 尝试加载图片，失败则使用默认绘制"""
         # 尝试加载项目 logo 图片
@@ -758,39 +977,6 @@ class LoginWindow(QDialog):
 
         painter.end()
         return pixmap
-
-    def _add_password_toggle(self, line_edit: QLineEdit):
-        """添加密码显示/隐藏切换"""
-        toggle_btn = QPushButton("o", line_edit)
-        toggle_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: none;
-                font-size: 14px;
-                color: #999;
-            }
-            QPushButton:hover {
-                color: #666;
-            }
-        """)
-        toggle_btn.setFixedSize(24, 24)
-        toggle_btn.setCursor(Qt.PointingHandCursor)
-        toggle_btn.move(line_edit.width() - 38, 11)
-
-        def update_position():
-            toggle_btn.move(line_edit.width() - 38, 11)
-
-        line_edit.resizeEvent = lambda e: update_position()
-
-        def toggle_visibility():
-            if line_edit.echoMode() == QLineEdit.Password:
-                line_edit.setEchoMode(QLineEdit.Normal)
-                toggle_btn.setText(".")  # 显示状态 - 密码可见
-            else:
-                line_edit.setEchoMode(QLineEdit.Password)
-                toggle_btn.setText("o")  # 隐藏状态 - 密码隐藏
-
-        toggle_btn.clicked.connect(toggle_visibility)
     
     def _load_saved_credentials(self):
         """加载保存的凭证和设置"""
