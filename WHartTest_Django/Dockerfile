@@ -133,6 +133,7 @@ COPY projects/ /app/projects/
 COPY prompts/ /app/prompts/
 COPY requirements/ /app/requirements/
 COPY skills/ /app/skills/
+COPY ui_automation/ /app/ui_automation/
 COPY testcase_templates/ /app/testcase_templates/
 COPY testcases/ /app/testcases/
 COPY wharttest_django/ /app/wharttest_django/
