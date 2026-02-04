@@ -715,6 +715,7 @@ const handleToolDecision = async (decision: {
     const actionCount = currentInterrupt.value?.action_requests?.length || 1;
     const resumePayload: Record<string, any> = {
       session_id: sessionId.value,
+      project_id: projectStore.currentProjectId,
       resume: {
         [decision.interruptId]: {
           decisions: [{ type: decision.type }],
