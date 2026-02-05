@@ -266,5 +266,10 @@ volumes:
 
 
 # 升级构建命令（如有需要）:
+
+# 分步骤命令:
 # docker-compose -f 'docker-compose.local.yml' build --no-cache 
 # docker-compose -f 'docker-compose.local.yml' up -d --force-recreate
+
+# 一步到位命令（如有需要）:
+# docker-compose -f docker-compose.local.yml build --no-cache && docker-compose -f docker-compose.local.yml up -d --force-recreate
