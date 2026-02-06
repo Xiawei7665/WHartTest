@@ -407,7 +407,8 @@ export const importTestCases = async (
 export const exportTestCasesWithTemplate = async (
   projectId: number,
   templateId?: number | null,
-  testCaseIds?: number[]
+  testCaseIds?: number[],
+  moduleIds?: number[]
 ): Promise<OperationResponse> => {
   const authStore = useAuthStore();
   const accessToken = authStore.getAccessToken;
@@ -423,6 +424,9 @@ export const exportTestCasesWithTemplate = async (
     }
     if (testCaseIds && testCaseIds.length > 0) {
       params.ids = testCaseIds.join(',');
+    }
+    if (moduleIds && moduleIds.length > 0) {
+      params.module_ids = moduleIds.join(',');
     }
 
     const response = await axios.get(

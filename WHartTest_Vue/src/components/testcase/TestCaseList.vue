@@ -173,6 +173,7 @@
       ref="exportModalRef"
       :project-id="currentProjectId"
       :selected-ids="selectedTestCaseIds"
+      :module-tree="moduleTree"
     />
   </div>
 </template>

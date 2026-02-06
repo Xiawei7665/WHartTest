@@ -148,11 +148,13 @@ class TestCaseViewSet(viewsets.ModelViewSet):
 
         testcase_ids = None
         template_id = None
+        module_ids = None
 
         if request.method == 'POST':
-            # POST请求，从请求体获取ids和template_id
+            # POST请求，从请求体获取ids、template_id和module_ids
             ids_data = request.data.get('ids', [])
             template_id = request.data.get('template_id')
+            module_ids_data = request.data.get('module_ids', [])
             if ids_data:
                 try:
                     testcase_ids = [int(id) for id in ids_data]
@@ -162,10 +164,19 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         {'error': 'ids参数格式错误，应为数字列表'},
                         status=400
                     )
+            if module_ids_data:
+                try:
+                    module_ids = [int(id) for id in module_ids_data]
+                except (ValueError, TypeError):
+                    return Response(
+                        {'error': 'module_ids参数格式错误，应为数字列表'},
+                        status=400
+                    )
         else:
-            # GET请求，从查询参数获取ids和template_id
+            # GET请求，从查询参数获取ids、template_id和module_ids
             ids_param = request.query_params.get('ids', '')
             template_id = request.query_params.get('template_id')
+            module_ids_param = request.query_params.get('module_ids', '')
             if ids_param:
                 try:
                     testcase_ids = [int(id.strip()) for id in ids_param.split(',') if id.strip()]
@@ -175,12 +186,32 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         {'error': 'ids参数格式错误，应为逗号分隔的数字列表'},
                         status=400
                     )
+            if module_ids_param:
+                try:
+                    module_ids = [int(id.strip()) for id in module_ids_param.split(',') if id.strip()]
+                except ValueError:
+                    return Response(
+                        {'error': 'module_ids参数格式错误，应为逗号分隔的数字列表'},
+                        status=400
+                    )
 
-        # 根据是否提供了ids来过滤queryset
+        # 根据过滤条件构建queryset
+        queryset = self.get_queryset()
         if testcase_ids:
-            queryset = self.get_queryset().filter(id__in=testcase_ids)
-        else:
-            queryset = self.get_queryset()
+            queryset = queryset.filter(id__in=testcase_ids)
+        elif module_ids:
+            # 收集所有选中模块及其子模块的ID
+            all_module_ids = set()
+            for mid in module_ids:
+                try:
+                    module = TestCaseModule.objects.get(id=mid)
+                    all_module_ids.update(module.get_all_descendant_ids())
+                except TestCaseModule.DoesNotExist:
+                    pass
+            if all_module_ids:
+                queryset = queryset.filter(module_id__in=all_module_ids)
+            else:
+                queryset = queryset.none()
 
         # 获取模版（如果指定）
         template = None
