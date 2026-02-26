@@ -7,6 +7,7 @@
         allow-clear
         style="width: 200px"
         @search="fetchElements"
+        @clear="fetchElements"
       />
       <a-button type="primary" @click="showAddModal">
         <template #icon><icon-plus /></template>

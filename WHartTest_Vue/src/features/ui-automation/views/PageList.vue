@@ -19,6 +19,7 @@
           allow-clear
           style="width: 260px"
           @search="onSearch"
+          @clear="onSearch"
         />
       </div>
       <div class="action-buttons">
