@@ -184,7 +184,7 @@
               <template #icon><icon-cloud /></template>
               <a href="#" @click="checkProjectAndNavigate($event, '/remote-mcp-configs')">MCP配置</a>
             </a-menu-item>
-            <a-menu-item key="skills" v-if="hasMcpConfigsPermission">
+            <a-menu-item key="skills" v-if="hasSkillsPermission">
               <template #icon><icon-apps /></template>
               <a href="#" @click="checkProjectAndNavigate($event, '/skills')">Skills管理</a>
             </a-menu-item>
@@ -403,6 +403,10 @@ const hasMcpConfigsPermission = computed(() => {
   return authStore.hasPermission('mcp_tools.view_remotemcpconfig');
 });
 
+const hasSkillsPermission = computed(() => {
+  return authStore.hasPermission('skills.view_skill');
+});
+
 // 检查是否有测试管理菜单项的权限
 const hasTestManagementMenuItems = computed(() => {
   return hasTestcasesPermission.value ||
@@ -417,7 +421,8 @@ const hasSystemMenuItems = computed(() => {
          hasPermissionsPermission.value ||
          hasLlmConfigsPermission.value ||
          hasApiKeysPermission.value ||
-         hasMcpConfigsPermission.value;
+         hasMcpConfigsPermission.value ||
+         hasSkillsPermission.value;
 });
 
 // 切换侧边栏收起状态

@@ -335,94 +335,93 @@ class ContentTypeSerializer(serializers.ModelSerializer):
 
     def get_app_label_cn(self, obj):
         """
-        返回应用标签的中文名称
-        第一层：项目管理、需求管理、用例管理、LLM对话、知识库管理、系统管理
-        第二层：系统管理下有子分类：用户管理、组织管理、权限管理、LLM配置、KEY管理、MCP配置、Skills管理
+        返回与前端菜单一致的第一层分类。
         """
-        # langgraph_integration应用特殊处理：根据模型区分分类
-        if obj.app_label == 'langgraph_integration':
-            model_name = obj.model.lower()
-            if model_name == 'llmconfig':
-                return '系统管理'  # LLM配置归到系统管理下的LLM配置
-            else:  # chatsession, chatmessage
-                return 'LLM对话'  # 对话相关归到LLM对话
-        
-        # prompts应用归类到LLM对话（用户提示词与对话功能相关）
-        if obj.app_label == 'prompts':
-            return 'LLM对话'
-        
-        app_labels = {
-            # 核心业务模块 (第一层)
-            'projects': '项目管理',
-            'testcases': '用例管理', 
-            'testcase_templates': '用例管理',
-            'requirements': '需求管理',
-            'knowledge': '知识库管理',
-            'orchestrator_integration': 'LLM对话',
-            'ui_automation': '用例管理',
+        app_label = obj.app_label
+        model_name = (obj.model or '').lower()
 
-            # 系统管理模块 (第一层，下面会有第二层细分)
-            'auth': '系统管理',  # 用户、组、权限管理
-            'accounts': '系统管理',  # 账户相关功能
+        # langgraph_integration 按模型区分到不同菜单
+        if app_label == 'langgraph_integration':
+            if model_name == 'llmconfig':
+                return '系统管理'
+            if model_name in ['chatsession', 'chatmessage']:
+                return 'LLM对话'
+
+        # 提示词归类到 LLM 对话
+        if app_label == 'prompts':
+            return 'LLM对话'
+
+        app_labels = {
+            # 前端一级菜单
+            'projects': '项目管理',
+            'requirements': '需求管理',
+            'orchestrator_integration': '智能图表',
+            'ui_automation': 'UI自动化',
+            'testcases': '测试管理',
+            'testcase_templates': '测试管理',
+            'knowledge': '知识库管理',
+
+            # 系统管理
+            'auth': '系统管理',
+            'accounts': '系统管理',
             'api_keys': '系统管理',
-            'apikey': '系统管理',  # API密钥管理
-            'mcp_tools': '系统管理', 
+            'apikey': '系统管理',
+            'mcp_tools': '系统管理',
             'skills': '系统管理',
             'task_center': '系统管理',
             'django_celery_beat': '系统管理',
-            'llms': '系统管理',  # LLM服务相关
-            'llm_config': '系统管理',  # LLM配置相关
-            'message': '系统管理',  # 消息系统
-            'mcpserverconfig': '系统管理',  # MCP服务器配置
-            
-            # 这些系统核心应用明确归类，但不给第二层分类
-            'admin': '系统管理',
-            'contenttypes': '系统管理', 
-            'sessions': '系统管理',
-            'authtoken': '系统管理',  # 如果存在
+            'llms': '系统管理',
+            'llm_config': '系统管理',
+            'message': '系统管理',
+            'mcpserverconfig': '系统管理',
+
+            # 系统核心应用（内容类型接口已排除 admin/contenttypes/sessions）
+            'authtoken': '系统管理',
         }
-        # 对于明确映射中没有的应用，检查后再决定是否归类到系统管理
-        return app_labels.get(obj.app_label, '系统管理')  # 保持默认归类到系统管理
+        return app_labels.get(app_label, '系统管理')
 
     def get_app_label_subcategory(self, obj):
         """
-        返回第二层分类（仅系统管理模块有第二层分类）
-        系统管理下的子分类：用户管理、组织管理、权限管理、LLM配置、KEY管理、MCP配置、Skills管理
+        返回与前端菜单一致的第二层分类（用于子菜单分组）。
         """
-        # 只有系统管理模块才有第二层分类
-        if self.get_app_label_cn(obj) != '系统管理':
+        menu_category = self.get_app_label_cn(obj)
+        app_label = obj.app_label
+        model_name = (obj.model or '').lower()
+
+        # 测试管理子菜单映射
+        if menu_category == '测试管理':
+            if app_label == 'testcase_templates':
+                return '用例管理'
+            if app_label == 'testcases':
+                if model_name == 'testsuite':
+                    return '测试套件'
+                if model_name in ['testexecution', 'testcaseresult', 'scriptexecution']:
+                    return '执行历史'
+                return '用例管理'
             return None
-            
-        # 严格控制：只有明确定义的应用才给第二层分类
-        # 排除所有系统核心应用，即使它们被归类到"系统管理"也不给第二层分类
-        if obj.app_label in ['admin', 'contenttypes', 'sessions', 'authtoken']:
+
+        # 系统管理子菜单映射
+        if menu_category != '系统管理':
             return None
-        
-        # langgraph_integration应用特殊处理：只有llmconfig模型才归到LLM配置
-        if obj.app_label == 'langgraph_integration' and obj.model.lower() == 'llmconfig':
+
+        if app_label == 'langgraph_integration' and model_name == 'llmconfig':
             return 'LLM配置'
-            
-        # 其他所有应用（包括任何未知应用）都不设第二层分类
+
         subcategories = {
-            # auth应用：用户、组、权限管理
             'auth': self._get_auth_subcategory(obj),
-            # accounts应用：权限管理相关
             'accounts': '权限管理',
-            # API密钥管理
             'api_keys': 'KEY管理',
-            'apikey': 'KEY管理',  # API密钥也归到KEY管理
-            # MCP工具配置
+            'apikey': 'KEY管理',
             'mcp_tools': 'MCP配置',
-            'mcpserverconfig': 'MCP配置',  # MCP服务器配置也归到MCP配置
+            'mcpserverconfig': 'MCP配置',
             'skills': 'Skills管理',
-            # LLM相关应用都归到LLM配置（注意：prompts现在归到LLM对话了）
             'llms': 'LLM配置',
             'llm_config': 'LLM配置',
-            # 消息系统
             'message': '消息管理',
+            'task_center': '任务调度',
+            'django_celery_beat': '任务调度',
         }
-        # 严格控制：只返回明确定义的分类，其他一律返回None
-        return subcategories.get(obj.app_label, None)
+        return subcategories.get(app_label, None)
     
     def _get_auth_subcategory(self, obj):
         """
@@ -448,6 +447,12 @@ class ContentTypeSerializer(serializers.ModelSerializer):
             return 99  # 没有第二层分类的排在最后
             
         subcategory_sort = {
+            # 测试管理
+            '用例管理': 1,
+            '测试套件': 2,
+            '执行历史': 3,
+
+            # 系统管理
             '用户管理': 1,
             '组织管理': 2,
             '权限管理': 3,
@@ -456,6 +461,7 @@ class ContentTypeSerializer(serializers.ModelSerializer):
             'MCP配置': 6,
             '消息管理': 7,
             'Skills管理': 8,
+            '任务调度': 9,
         }
         return subcategory_sort.get(subcategory, 99)
 
@@ -468,12 +474,14 @@ class ContentTypeSerializer(serializers.ModelSerializer):
         sort_order = {
             '项目管理': 1,
             '需求管理': 2,
-            '用例管理': 3,
-            'LLM对话': 4,
-            '知识库管理': 5,
-            '系统管理': 6,  # 系统管理排在最后
+            '智能图表': 3,
+            'UI自动化': 4,
+            '测试管理': 5,
+            'LLM对话': 6,
+            '知识库管理': 7,
+            '系统管理': 8,
         }
-        return sort_order.get(app_label_cn, 6)  # 默认排在最后
+        return sort_order.get(app_label_cn, 99)
 
     def get_model_cn(self, obj):
         """
