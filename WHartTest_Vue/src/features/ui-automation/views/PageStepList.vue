@@ -58,7 +58,7 @@
         <a-space :size="4">
           <a-button type="text" size="mini" @click="viewStepDetails(record)">
             <template #icon><icon-settings /></template>
-            详情
+            添加步骤
           </a-button>
           <a-button type="text" size="mini" @click="editPageStep(record)">
             <template #icon><icon-edit /></template>
