@@ -335,87 +335,93 @@ class ContentTypeSerializer(serializers.ModelSerializer):
 
     def get_app_label_cn(self, obj):
         """
-        返回应用标签的中文名称
-        第一层：项目管理、需求管理、用例管理、LLM对话、知识库管理、系统管理
-        第二层：系统管理下有子分类：用户管理、组织管理、权限管理、LLM配置、KEY管理、MCP配置
+        返回与前端菜单一致的第一层分类。
         """
-        # langgraph_integration应用特殊处理：根据模型区分分类
-        if obj.app_label == 'langgraph_integration':
-            model_name = obj.model.lower()
+        app_label = obj.app_label
+        model_name = (obj.model or '').lower()
+
+        # langgraph_integration 按模型区分到不同菜单
+        if app_label == 'langgraph_integration':
             if model_name == 'llmconfig':
-                return '系统管理'  # LLM配置归到系统管理下的LLM配置
-            else:  # chatsession, chatmessage
-                return 'LLM对话'  # 对话相关归到LLM对话
-        
-        # prompts应用归类到LLM对话（用户提示词与对话功能相关）
-        if obj.app_label == 'prompts':
+                return '系统管理'
+            if model_name in ['chatsession', 'chatmessage']:
+                return 'LLM对话'
+
+        # 提示词归类到 LLM 对话
+        if app_label == 'prompts':
             return 'LLM对话'
-        
+
         app_labels = {
-            # 核心业务模块 (第一层)
+            # 前端一级菜单
             'projects': '项目管理',
-            'testcases': '用例管理', 
             'requirements': '需求管理',
+            'orchestrator_integration': '智能图表',
+            'ui_automation': 'UI自动化',
+            'testcases': '测试管理',
+            'testcase_templates': '测试管理',
             'knowledge': '知识库管理',
 
-            # 系统管理模块 (第一层，下面会有第二层细分)
-            'auth': '系统管理',  # 用户、组、权限管理
-            'accounts': '系统管理',  # 账户相关功能
+            # 系统管理
+            'auth': '系统管理',
+            'accounts': '系统管理',
             'api_keys': '系统管理',
-            'apikey': '系统管理',  # API密钥管理
-            'mcp_tools': '系统管理', 
-            'llms': '系统管理',  # LLM服务相关
-            'llm_config': '系统管理',  # LLM配置相关
-            'message': '系统管理',  # 消息系统
-            'mcpserverconfig': '系统管理',  # MCP服务器配置
-            
-            # 这些系统核心应用明确归类，但不给第二层分类
-            'admin': '系统管理',
-            'contenttypes': '系统管理', 
-            'sessions': '系统管理',
-            'authtoken': '系统管理',  # 如果存在
+            'apikey': '系统管理',
+            'mcp_tools': '系统管理',
+            'skills': '系统管理',
+            'task_center': '系统管理',
+            'django_celery_beat': '系统管理',
+            'llms': '系统管理',
+            'llm_config': '系统管理',
+            'message': '系统管理',
+            'mcpserverconfig': '系统管理',
+
+            # 系统核心应用（内容类型接口已排除 admin/contenttypes/sessions）
+            'authtoken': '系统管理',
         }
-        # 对于明确映射中没有的应用，检查后再决定是否归类到系统管理
-        return app_labels.get(obj.app_label, '系统管理')  # 保持默认归类到系统管理
+        return app_labels.get(app_label, '系统管理')
 
     def get_app_label_subcategory(self, obj):
         """
-        返回第二层分类（仅系统管理模块有第二层分类）
-        系统管理下的子分类：用户管理、组织管理、权限管理、LLM配置、KEY管理、MCP配置
+        返回与前端菜单一致的第二层分类（用于子菜单分组）。
         """
-        # 只有系统管理模块才有第二层分类
-        if self.get_app_label_cn(obj) != '系统管理':
+        menu_category = self.get_app_label_cn(obj)
+        app_label = obj.app_label
+        model_name = (obj.model or '').lower()
+
+        # 测试管理子菜单映射
+        if menu_category == '测试管理':
+            if app_label == 'testcase_templates':
+                return '用例管理'
+            if app_label == 'testcases':
+                if model_name == 'testsuite':
+                    return '测试套件'
+                if model_name in ['testexecution', 'testcaseresult', 'scriptexecution']:
+                    return '执行历史'
+                return '用例管理'
             return None
-            
-        # 严格控制：只有明确定义的应用才给第二层分类
-        # 排除所有系统核心应用，即使它们被归类到"系统管理"也不给第二层分类
-        if obj.app_label in ['admin', 'contenttypes', 'sessions', 'authtoken']:
+
+        # 系统管理子菜单映射
+        if menu_category != '系统管理':
             return None
-        
-        # langgraph_integration应用特殊处理：只有llmconfig模型才归到LLM配置
-        if obj.app_label == 'langgraph_integration' and obj.model.lower() == 'llmconfig':
+
+        if app_label == 'langgraph_integration' and model_name == 'llmconfig':
             return 'LLM配置'
-            
-        # 其他所有应用（包括任何未知应用）都不设第二层分类
+
         subcategories = {
-            # auth应用：用户、组、权限管理
             'auth': self._get_auth_subcategory(obj),
-            # accounts应用：权限管理相关
             'accounts': '权限管理',
-            # API密钥管理
             'api_keys': 'KEY管理',
-            'apikey': 'KEY管理',  # API密钥也归到KEY管理
-            # MCP工具配置
+            'apikey': 'KEY管理',
             'mcp_tools': 'MCP配置',
-            'mcpserverconfig': 'MCP配置',  # MCP服务器配置也归到MCP配置
-            # LLM相关应用都归到LLM配置（注意：prompts现在归到LLM对话了）
+            'mcpserverconfig': 'MCP配置',
+            'skills': 'Skills管理',
             'llms': 'LLM配置',
             'llm_config': 'LLM配置',
-            # 消息系统
             'message': '消息管理',
+            'task_center': '任务调度',
+            'django_celery_beat': '任务调度',
         }
-        # 严格控制：只返回明确定义的分类，其他一律返回None
-        return subcategories.get(obj.app_label, None)
+        return subcategories.get(app_label, None)
     
     def _get_auth_subcategory(self, obj):
         """
@@ -441,6 +447,12 @@ class ContentTypeSerializer(serializers.ModelSerializer):
             return 99  # 没有第二层分类的排在最后
             
         subcategory_sort = {
+            # 测试管理
+            '用例管理': 1,
+            '测试套件': 2,
+            '执行历史': 3,
+
+            # 系统管理
             '用户管理': 1,
             '组织管理': 2,
             '权限管理': 3,
@@ -448,6 +460,8 @@ class ContentTypeSerializer(serializers.ModelSerializer):
             'KEY管理': 5,
             'MCP配置': 6,
             '消息管理': 7,
+            'Skills管理': 8,
+            '任务调度': 9,
         }
         return subcategory_sort.get(subcategory, 99)
 
@@ -460,12 +474,14 @@ class ContentTypeSerializer(serializers.ModelSerializer):
         sort_order = {
             '项目管理': 1,
             '需求管理': 2,
-            '用例管理': 3,
-            'LLM对话': 4,
-            '知识库管理': 5,
-            '系统管理': 6,  # 系统管理排在最后
+            '智能图表': 3,
+            'UI自动化': 4,
+            '测试管理': 5,
+            'LLM对话': 6,
+            '知识库管理': 7,
+            '系统管理': 8,
         }
-        return sort_order.get(app_label_cn, 6)  # 默认排在最后
+        return sort_order.get(app_label_cn, 99)
 
     def get_model_cn(self, obj):
         """
@@ -493,12 +509,39 @@ class ContentTypeSerializer(serializers.ModelSerializer):
                 'conversation.conversation': '对话',
                 'api_keys.apikey': 'API密钥',
                 'mcp_tools.mcpserverconfig': 'MCP服务器配置',
+                'mcp_tools.mcptool': 'MCP工具',
                 'knowledge.document': '文档',
                 'knowledge.knowledgebase': '知识库',
                 'knowledge.knowledgedocument': '知识库文档',
                 'knowledge.documentchunk': '文档分块',
                 'knowledge.vectordatabaseindex': '向量数据库索引',
                 'knowledge.vectorstoreindex': '向量存储索引',
+                'testcase_templates.importexporttemplate': '用例导入导出模板',
+                'orchestrator_integration.orchestratortask': '智能编排任务',
+                'orchestrator_integration.agenttask': 'Agent任务',
+                'orchestrator_integration.agentstep': 'Agent步骤',
+                'orchestrator_integration.agentblackboard': 'Agent黑板',
+                'skills.skill': 'Skills',
+                'langgraph_integration.usertoolapproval': '用户工具审批偏好',
+                'task_center.scheduledtask': '调度任务',
+                'task_center.taskexecution': '任务执行记录',
+                'django_celery_beat.clockedschedule': '单次调度配置',
+                'django_celery_beat.crontabschedule': 'Cron调度配置',
+                'django_celery_beat.intervalschedule': '间隔调度配置',
+                'django_celery_beat.periodictask': '周期任务',
+                'django_celery_beat.periodictasks': '周期任务状态',
+                'django_celery_beat.solarschedule': '太阳事件调度配置',
+                'ui_automation.uibatchexecutionrecord': 'UI批量执行记录',
+                'ui_automation.uicasestepsdetailed': 'UI用例步骤明细',
+                'ui_automation.uielement': 'UI元素',
+                'ui_automation.uienvironmentconfig': 'UI环境配置',
+                'ui_automation.uiexecutionrecord': 'UI执行记录',
+                'ui_automation.uimodule': 'UI模块',
+                'ui_automation.uipage': 'UI页面',
+                'ui_automation.uipagesteps': 'UI页面步骤',
+                'ui_automation.uipagestepsdetailed': 'UI页面步骤明细',
+                'ui_automation.uipublicdata': 'UI公共数据',
+                'ui_automation.uitestcase': 'UI测试用例',
             }
             
             # 先尝试应用+模型的精确匹配
@@ -541,6 +584,33 @@ class ContentTypeSerializer(serializers.ModelSerializer):
                 'content type': '内容类型',
                 'session': '会话',
                 'log entry': '日志条目',
+                'importexporttemplate': '用例导入导出模板',
+                'orchestratortask': '智能编排任务',
+                'agenttask': 'Agent任务',
+                'agentstep': 'Agent步骤',
+                'agentblackboard': 'Agent黑板',
+                'skill': 'Skills',
+                'usertoolapproval': '用户工具审批偏好',
+                'mcptool': 'MCP工具',
+                'scheduledtask': '调度任务',
+                'taskexecution': '任务执行记录',
+                'clockedschedule': '单次调度配置',
+                'crontabschedule': 'Cron调度配置',
+                'intervalschedule': '间隔调度配置',
+                'periodictask': '周期任务',
+                'periodictasks': '周期任务状态',
+                'solarschedule': '太阳事件调度配置',
+                'uibatchexecutionrecord': 'UI批量执行记录',
+                'uicasestepsdetailed': 'UI用例步骤明细',
+                'uielement': 'UI元素',
+                'uienvironmentconfig': 'UI环境配置',
+                'uiexecutionrecord': 'UI执行记录',
+                'uimodule': 'UI模块',
+                'uipage': 'UI页面',
+                'uipagesteps': 'UI页面步骤',
+                'uipagestepsdetailed': 'UI页面步骤明细',
+                'uipublicdata': 'UI公共数据',
+                'uitestcase': 'UI测试用例',
             }
             return model_name_translations.get(verbose_name.lower(), verbose_name)
         except:
@@ -556,6 +626,33 @@ class ContentTypeSerializer(serializers.ModelSerializer):
                 'llms.llmprovider': 'LLM提供商', 
                 'llms.llmmodel': 'LLM模型',
                 'llms.llmservice': 'LLM服务',
+                'mcp_tools.mcptool': 'MCP工具',
+                'testcase_templates.importexporttemplate': '用例导入导出模板',
+                'orchestrator_integration.orchestratortask': '智能编排任务',
+                'orchestrator_integration.agenttask': 'Agent任务',
+                'orchestrator_integration.agentstep': 'Agent步骤',
+                'orchestrator_integration.agentblackboard': 'Agent黑板',
+                'skills.skill': 'Skills',
+                'langgraph_integration.usertoolapproval': '用户工具审批偏好',
+                'task_center.scheduledtask': '调度任务',
+                'task_center.taskexecution': '任务执行记录',
+                'django_celery_beat.clockedschedule': '单次调度配置',
+                'django_celery_beat.crontabschedule': 'Cron调度配置',
+                'django_celery_beat.intervalschedule': '间隔调度配置',
+                'django_celery_beat.periodictask': '周期任务',
+                'django_celery_beat.periodictasks': '周期任务状态',
+                'django_celery_beat.solarschedule': '太阳事件调度配置',
+                'ui_automation.uibatchexecutionrecord': 'UI批量执行记录',
+                'ui_automation.uicasestepsdetailed': 'UI用例步骤明细',
+                'ui_automation.uielement': 'UI元素',
+                'ui_automation.uienvironmentconfig': 'UI环境配置',
+                'ui_automation.uiexecutionrecord': 'UI执行记录',
+                'ui_automation.uimodule': 'UI模块',
+                'ui_automation.uipage': 'UI页面',
+                'ui_automation.uipagesteps': 'UI页面步骤',
+                'ui_automation.uipagestepsdetailed': 'UI页面步骤明细',
+                'ui_automation.uipublicdata': 'UI公共数据',
+                'ui_automation.uitestcase': 'UI测试用例',
             }
             
             app_model_key = f"{app_label}.{model_name}"
@@ -582,6 +679,33 @@ class ContentTypeSerializer(serializers.ModelSerializer):
                 'user': '用户',
                 'group': '用户组',
                 'permission': '权限',
+                'importexporttemplate': '用例导入导出模板',
+                'orchestratortask': '智能编排任务',
+                'agenttask': 'Agent任务',
+                'agentstep': 'Agent步骤',
+                'agentblackboard': 'Agent黑板',
+                'skill': 'Skills',
+                'usertoolapproval': '用户工具审批偏好',
+                'mcptool': 'MCP工具',
+                'scheduledtask': '调度任务',
+                'taskexecution': '任务执行记录',
+                'clockedschedule': '单次调度配置',
+                'crontabschedule': 'Cron调度配置',
+                'intervalschedule': '间隔调度配置',
+                'periodictask': '周期任务',
+                'periodictasks': '周期任务状态',
+                'solarschedule': '太阳事件调度配置',
+                'uibatchexecutionrecord': 'UI批量执行记录',
+                'uicasestepsdetailed': 'UI用例步骤明细',
+                'uielement': 'UI元素',
+                'uienvironmentconfig': 'UI环境配置',
+                'uiexecutionrecord': 'UI执行记录',
+                'uimodule': 'UI模块',
+                'uipage': 'UI页面',
+                'uipagesteps': 'UI页面步骤',
+                'uipagestepsdetailed': 'UI页面步骤明细',
+                'uipublicdata': 'UI公共数据',
+                'uitestcase': 'UI测试用例',
             }
             return model_name_translations.get(obj.model.lower(), obj.model)
 
@@ -610,8 +734,28 @@ class PermissionSerializer(serializers.ModelSerializer):
         # 优先从 PERMISSION_NAME_TRANSLATIONS 映射中获取
         # 如果Django的i18n配置好了，也可以直接翻译obj.name
         # 例如: return _(obj.name)
-        # 这里我们使用预定义的映射，如果找不到，则返回原始名称
-        return PERMISSION_NAME_TRANSLATIONS.get(obj.name, obj.name)
+        translated_name = PERMISSION_NAME_TRANSLATIONS.get(obj.name)
+        if translated_name:
+            return translated_name
+
+        # 对未显式配置的标准CRUD权限，基于 codename 动态生成中文名称
+        action_map = {
+            'add': '添加',
+            'change': '修改',
+            'delete': '删除',
+            'view': '查看',
+        }
+        codename = getattr(obj, 'codename', '') or ''
+        if '_' in codename:
+            action, _model = codename.split('_', 1)
+            if action in action_map:
+                try:
+                    model_cn = ContentTypeSerializer(context=self.context).get_model_cn(obj.content_type)
+                    return f"{action_map[action]}{model_cn}"
+                except Exception:
+                    pass
+
+        return obj.name
 
 # New Serializers for specific operations
 

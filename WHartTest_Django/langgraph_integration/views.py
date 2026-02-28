@@ -97,38 +97,67 @@ logger = logging.getLogger(__name__) # Initialize logger
 def create_llm_instance(active_config, temperature=0.7):
     """
     根据配置创建LLM实例
-    统一使用OpenAI兼容格式，支持所有兼容的服务商
+    支持多供应商：
+    - openai_compatible: ChatOpenAI（OpenAI兼容协议）
+    - qwen: ChatQwen（阿里云百炼通义千问）
     
     关键参数说明：
     - timeout: 请求超时时间（秒），防止无限期等待
     - max_retries: 最大重试次数，处理临时网络问题
     """
     model_identifier = active_config.name or "gpt-3.5-turbo"
+    provider = (getattr(active_config, "provider", None) or "openai_compatible").strip()
     
     # 从配置获取超时设置，默认120秒（LLM响应可能较慢）
     request_timeout = getattr(active_config, 'request_timeout', None) or 120
     # 重试次数，默认3次
     max_retries = getattr(active_config, 'max_retries', None) or 3
-    
-    llm_kwargs = {
-        "model": model_identifier,
-        "temperature": temperature,
-        "api_key": active_config.api_key,
-        "base_url": active_config.api_url,
-        "timeout": request_timeout,  # 单次请求超时
-        "max_retries": max_retries,  # 自动重试次数
-    }
-    
+
+    base_url = (active_config.api_url or "").strip() or None
+    api_key = (active_config.api_key or "").strip()
+
     try:
-        llm = ChatOpenAI(**llm_kwargs)
+        if provider == "qwen":
+            try:
+                from langchain_qwq import ChatQwen
+            except ImportError as e:
+                raise ImportError(
+                    "Qwen provider requires langchain-qwq. Please install dependencies from requirements.txt."
+                ) from e
+
+            llm_kwargs = {
+                "model": model_identifier,
+                "temperature": temperature,
+                "timeout": request_timeout,
+                "max_retries": max_retries,
+            }
+            if api_key:
+                llm_kwargs["api_key"] = api_key
+            if base_url:
+                llm_kwargs["base_url"] = base_url
+
+            llm = ChatQwen(**llm_kwargs)
+        else:
+            if provider != "openai_compatible":
+                logger.warning("Unknown provider '%s', fallback to openai_compatible", provider)
+            llm_kwargs = {
+                "model": model_identifier,
+                "temperature": temperature,
+                "api_key": api_key,
+                "base_url": base_url,
+                "timeout": request_timeout,  # 单次请求超时
+                "max_retries": max_retries,  # 自动重试次数
+            }
+            llm = ChatOpenAI(**llm_kwargs)
+
         logger.info(
-            f"Initialized LLM: model={model_identifier}, base_url={active_config.api_url}, "
-            f"timeout={request_timeout}s, max_retries={max_retries}"
+            "Initialized LLM: provider=%s, model=%s, base_url=%s, timeout=%ss, max_retries=%s",
+            provider, model_identifier, base_url, request_timeout, max_retries
         )
     except Exception as e:
         logger.error(
-            f"Failed to initialize LLM: model={model_identifier}, base_url={active_config.api_url}, "
-            f"error={type(e).__name__}: {e}",
+            "Failed to initialize LLM: provider=%s, model=%s, base_url=%s, error=%s: %s",
+            provider, model_identifier, base_url, type(e).__name__, e,
             exc_info=True
         )
         raise
@@ -294,33 +323,16 @@ class LLMConfigViewSet(BaseModelViewSet):
     @action(detail=True, methods=['post'])
     def test_connection(self, request, pk=None):
         """测试LLM配置连接"""
-        import requests as http_requests
         config = self.get_object()
-        api_url = config.api_url.rstrip('/')
-        headers = {'Content-Type': 'application/json'}
-        if config.api_key:
-            headers['Authorization'] = f'Bearer {config.api_key}'
+
         try:
-            resp = http_requests.post(
-                f'{api_url}/chat/completions',
-                json={'model': config.name, 'messages': [{'role': 'user', 'content': 'Hi'}], 'max_tokens': 5},
-                headers=headers,
-                timeout=30
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            if data.get('choices') and len(data['choices']) > 0:
+            llm = create_llm_instance(config, temperature=0.1)
+            response = llm.invoke("Hi")
+            if getattr(response, "content", None):
                 return Response({'status': 'success', 'message': '连接测试成功'})
             return Response({'status': 'warning', 'message': '响应格式异常'}, status=status.HTTP_200_OK)
-        except http_requests.Timeout:
-            return Response({'status': 'error', 'message': '请求超时'}, status=status.HTTP_408_REQUEST_TIMEOUT)
-        except http_requests.RequestException as e:
+        except Exception as e:
             msg = str(e)
-            if hasattr(e, 'response') and e.response is not None:
-                try:
-                    msg = e.response.json().get('error', {}).get('message', str(e))
-                except Exception:
-                    msg = e.response.text[:200] if e.response.text else str(e)
             return Response({'status': 'error', 'message': f'连接失败: {msg}'}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=['post'])
@@ -511,9 +523,30 @@ async def _format_project_skills(project):
         return ""
 
 
+def _build_project_scope_hint(project) -> str:
+    """
+    构建项目作用域提示词。
+
+    默认约束 LLM：如果用户未明确指定其他项目，所有操作均基于当前项目。
+    """
+    if not project:
+        return ""
+
+    project_name = getattr(project, 'name', '') or "未命名项目"
+    project_id = getattr(project, 'id', None)
+    project_label = f"{project_name} (ID: {project_id})" if project_id is not None else project_name
+
+    return (
+        "# 当前项目上下文\n"
+        f"- 当前项目：{project_label}\n"
+        "- 默认规则：如用户无特殊要求，所有操作均基于当前项目进行。\n"
+        "- 若用户明确指定了其他项目，再按用户要求切换。"
+    )
+
+
 async def _inject_project_context(prompt_content: str, project) -> str:
     """
-    注入项目上下文（凭据和 Skills）到提示词中
+    注入项目上下文（项目作用域、凭据和 Skills）到提示词中
 
     Args:
         prompt_content: 原始提示词内容
@@ -524,6 +557,15 @@ async def _inject_project_context(prompt_content: str, project) -> str:
     """
     if not project:
         return prompt_content
+
+    prompt_content = prompt_content or ""
+
+    # 注入项目作用域提示（可使用占位符 {project_scope_hint} 精确控制位置）
+    project_scope_hint = _build_project_scope_hint(project)
+    if '{project_scope_hint}' in prompt_content:
+        prompt_content = prompt_content.replace('{project_scope_hint}', project_scope_hint)
+    elif project_scope_hint and "默认规则：如用户无特殊要求，所有操作均基于当前项目进行。" not in prompt_content:
+        prompt_content = f"{project_scope_hint}\n\n{prompt_content}".strip()
 
     # 注入凭据信息
     if '{credentials_info}' in prompt_content:
@@ -547,7 +589,8 @@ async def get_effective_system_prompt_async(user, prompt_id=None, project=None):
     """
     获取有效的系统提示词（异步版本）
     优先级：用户指定的提示词 > 用户默认提示词 > 全局LLM配置的system_prompt
-    支持占位符: {credentials_info} 注入项目凭据, {skills_info} 注入项目 Skills 元数据
+    支持占位符: {project_scope_hint} 注入项目作用域, {credentials_info} 注入项目凭据,
+    {skills_info} 注入项目 Skills 元数据
     如果未使用 {skills_info} 占位符，活跃的 Skills 元数据将自动追加到提示词末尾
     （完整的 SKILL.md 内容通过 read_skill_content 工具按需获取）
 
@@ -559,7 +602,7 @@ async def get_effective_system_prompt_async(user, prompt_id=None, project=None):
     Returns:
         tuple: (prompt_content, prompt_source)
         prompt_content: 提示词内容（已注入项目上下文）
-        prompt_source: 提示词来源 ('user_specified', 'user_default', 'global', 'none')
+        prompt_source: 提示词来源 ('user_specified', 'user_default', 'global', 'project_context', 'none')
     """
     try:
         # 1. 如果指定了提示词ID，优先使用
@@ -597,7 +640,12 @@ async def get_effective_system_prompt_async(user, prompt_id=None, project=None):
         except LLMConfig.DoesNotExist:
             logger.warning("No active LLM configuration found")
 
-        # 4. 没有任何提示词
+        # 4. 没有任何提示词时，至少注入项目作用域提示，确保默认按当前项目执行
+        project_scope_hint = _build_project_scope_hint(project)
+        if project_scope_hint:
+            return project_scope_hint, 'project_context'
+
+        # 5. 仍无可用提示词
         return None, 'none'
 
     except Exception as e:
@@ -609,6 +657,9 @@ async def get_effective_system_prompt_async(user, prompt_id=None, project=None):
                 return active_config.system_prompt.strip(), 'global'
         except:
             pass
+        project_scope_hint = _build_project_scope_hint(project)
+        if project_scope_hint:
+            return project_scope_hint, 'project_context'
         return None, 'none'
 
 
@@ -867,7 +918,45 @@ class ChatAPIView(APIView):
                         logger.error(f"ChatAPIView: Failed to create agent with remote tools: {e}. Falling back to knowledge-enhanced chatbot.", exc_info=True)
 
                 if not runnable_to_invoke:
-                    logger.info("ChatAPIView: No remote tools or agent creation failed. Using knowledge-enhanced chatbot.")
+                    logger.info("ChatAPIView: No remote tools or agent creation failed. Trying middleware-enabled agent fallback.")
+
+                    fallback_tools = []
+                    if knowledge_base_id and use_knowledge_base:
+                        try:
+                            from knowledge.langgraph_integration import create_knowledge_tool
+                            knowledge_tool = create_knowledge_tool(
+                                knowledge_base_id=knowledge_base_id,
+                                user=request.user,
+                                similarity_threshold=similarity_threshold,
+                                top_k=top_k
+                            )
+                            fallback_tools.append(knowledge_tool)
+                            logger.info("ChatAPIView: Added knowledge tool in fallback path")
+                        except Exception as e:
+                            logger.warning(f"ChatAPIView: Failed to create fallback knowledge tool: {e}", exc_info=True)
+
+                    try:
+                        fallback_tool_names = [t.name for t in fallback_tools] if fallback_tools else None
+                        agent_executor = create_agent(
+                            llm,
+                            fallback_tools,
+                            checkpointer=actual_memory_checkpointer,
+                            middleware=get_middleware_from_config(
+                                active_config, llm, user=request.user,
+                                session_id=session_id, all_tool_names=fallback_tool_names
+                            ),
+                            system_prompt=effective_prompt,
+                        )
+                        runnable_to_invoke = agent_executor
+                        # 使用 create_agent 路径时 system_prompt 由参数注入，不再走手动 SystemMessage 注入逻辑
+                        is_agent_with_tools = True
+                        logger.info("ChatAPIView: Middleware-enabled fallback agent created with %d tools", len(fallback_tools))
+                    except Exception as e:
+                        logger.error(f"ChatAPIView: Failed to create fallback agent: {e}", exc_info=True)
+
+                # 兜底：极端情况下 create_agent 失败，回退到旧 StateGraph（无中间件）
+                if not runnable_to_invoke:
+                    logger.info("ChatAPIView: Falling back to legacy knowledge-enhanced chatbot graph (without middleware).")
                     is_agent_with_tools = False # Ensure flag is false for basic chatbot
 
                     def knowledge_enhanced_chatbot_node(state: AgentState):
