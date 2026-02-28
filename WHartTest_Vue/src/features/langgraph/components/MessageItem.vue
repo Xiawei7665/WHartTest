@@ -24,7 +24,8 @@
       <div class="avatar">
         <img v-if="message.messageType === 'ai'" :src="logo" alt="AI Avatar" class="avatar-img" />
         <div v-else class="avatar-img" :class="avatarClass">
-          {{ avatarText }}
+          <icon-tool v-if="message.messageType === 'tool'" class="tool-avatar-icon" />
+          <span v-else>{{ avatarText }}</span>
         </div>
       </div>
       <div class="message-content">
@@ -136,7 +137,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, onUpdated, ref } from 'vue';
 import { Button as AButton, Tooltip as ATooltip, Message } from '@arco-design/web-vue';
-import { IconCopy, IconReply, IconRefresh, IconDelete, IconEye } from '@arco-design/web-vue/es/icon';
+import { IconCopy, IconReply, IconRefresh, IconDelete, IconEye, IconTool } from '@arco-design/web-vue/es/icon';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import logo from '/WHartTest.png';
@@ -809,6 +810,10 @@ const formatToolMessage = (content: string) => {
 
 .tool-avatar {
   background-color: #ff7d00;
+}
+
+.tool-avatar-icon {
+  font-size: 18px;
 }
 
 
