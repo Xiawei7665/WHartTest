@@ -237,6 +237,40 @@ PY
   awk -v left="$left" -v right="$right" 'BEGIN { exit !(left < right) }'
 }
 
+probe_url_speed() {
+  local url="$1"
+  local timeout="${2:-5}"
+  local max_bytes="${3:-1048576}"
+
+  python3 - "$url" "$timeout" "$max_bytes" <<'PY'
+import sys, time, urllib.error, urllib.request
+
+url, timeout, max_bytes = sys.argv[1], float(sys.argv[2]), int(sys.argv[3])
+total = 0
+start = time.perf_counter()
+try:
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        while total < max_bytes:
+            chunk = r.read(min(65536, max_bytes - total))
+            if not chunk:
+                break
+            total += len(chunk)
+except urllib.error.HTTPError as e:
+    try:
+        total = max(1, len(e.read(4096)))
+    except Exception:
+        total = 1
+except Exception:
+    pass
+elapsed = time.perf_counter() - start
+if elapsed > 0 and total > 0:
+    print(f"{total / 1024 / elapsed:.1f}")
+else:
+    sys.exit(1)
+PY
+}
+
 normalize_source_profile() {
   case "${DOCKER_SOURCE_PROFILE:-auto}" in
     native|origin|official)
@@ -259,14 +293,14 @@ get_default_candidates() {
   case "$1" in
     APT)
       cat <<'EOF2'
-official|http://deb.debian.org|http://deb.debian.org/debian/dists/bookworm/InRelease
-tsinghua|https://mirrors.tuna.tsinghua.edu.cn|https://mirrors.tuna.tsinghua.edu.cn/debian/dists/bookworm/InRelease
-ustc|https://mirrors.ustc.edu.cn|https://mirrors.ustc.edu.cn/debian/dists/bookworm/InRelease
-aliyun|https://mirrors.aliyun.com|https://mirrors.aliyun.com/debian/dists/bookworm/InRelease
-tencent|https://mirrors.cloud.tencent.com|https://mirrors.cloud.tencent.com/debian/dists/bookworm/InRelease
-huaweicloud|https://mirrors.huaweicloud.com|https://mirrors.huaweicloud.com/debian/dists/bookworm/InRelease
-bfsu|https://mirrors.bfsu.edu.cn|https://mirrors.bfsu.edu.cn/debian/dists/bookworm/InRelease
-sjtug|https://mirror.sjtu.edu.cn|https://mirror.sjtu.edu.cn/debian/dists/bookworm/InRelease
+official|http://deb.debian.org|http://deb.debian.org/debian/dists/bookworm/main/binary-amd64/Packages.gz
+tsinghua|https://mirrors.tuna.tsinghua.edu.cn|https://mirrors.tuna.tsinghua.edu.cn/debian/dists/bookworm/main/binary-amd64/Packages.gz
+ustc|https://mirrors.ustc.edu.cn|https://mirrors.ustc.edu.cn/debian/dists/bookworm/main/binary-amd64/Packages.gz
+aliyun|https://mirrors.aliyun.com|https://mirrors.aliyun.com/debian/dists/bookworm/main/binary-amd64/Packages.gz
+tencent|https://mirrors.cloud.tencent.com|https://mirrors.cloud.tencent.com/debian/dists/bookworm/main/binary-amd64/Packages.gz
+huaweicloud|https://mirrors.huaweicloud.com|https://mirrors.huaweicloud.com/debian/dists/bookworm/main/binary-amd64/Packages.gz
+bfsu|https://mirrors.bfsu.edu.cn|https://mirrors.bfsu.edu.cn/debian/dists/bookworm/main/binary-amd64/Packages.gz
+sjtug|https://mirror.sjtu.edu.cn|https://mirror.sjtu.edu.cn/debian/dists/bookworm/main/binary-amd64/Packages.gz
 EOF2
       ;;
     PyPI)
@@ -296,6 +330,12 @@ official|https://huggingface.co|https://huggingface.co/api/models/Qdrant/bm25
 hf-mirror|https://hf-mirror.com|https://hf-mirror.com/api/models/Qdrant/bm25
 EOF2
       ;;
+    Playwright)
+      cat <<'EOF2'
+official|https://playwright.azureedge.net|https://playwright.azureedge.net/builds/
+npmmirror|https://registry.npmmirror.com/-/binary/playwright|https://registry.npmmirror.com/-/binary/playwright/builds/
+EOF2
+      ;;
     *)
       return 1
       ;;
@@ -321,48 +361,80 @@ select_source_from_candidates() {
   local candidate_name=""
   local candidate_value=""
   local candidate_probe=""
-  local candidate_time=""
-  local best_name=""
-  local best_value=""
-  local best_time=""
   local official_value=""
 
   candidates="$({ get_default_candidates "$label"; get_extra_candidates "$extra_env_name"; } | sed '/^[[:space:]]*$/d')"
 
+  # native 模式直接使用官方源
   while IFS='|' read -r candidate_name candidate_value candidate_probe; do
-    [ -n "$candidate_name" ] || continue
-    [ -n "$candidate_value" ] || continue
-    [ -n "$candidate_probe" ] || continue
-
-    if [ "$candidate_name" = "official" ] && [ -z "$official_value" ]; then
+    if [ "$candidate_name" = "official" ]; then
       official_value="$candidate_value"
       if [ "$profile" = "native" ]; then
         echo "$label: 直接使用官方源 => $official_value" >&2
         printf '%s' "$official_value"
         return 0
       fi
+      break
     fi
+  done <<< "$candidates"
+
+  # 并行带宽测速（下载最多 5MB 实际数据）
+  local tmpdir=""
+  tmpdir=$(mktemp -d)
+  local pids=()
+  local max_parallel=5
+  local running=0
+
+  echo "$label: 并行带宽测速..." >&2
+
+  while IFS='|' read -r candidate_name candidate_value candidate_probe; do
+    [ -n "$candidate_name" ] || continue
+    [ -n "$candidate_value" ] || continue
+    [ -n "$candidate_probe" ] || continue
 
     if [ "$profile" = "mirror" ] && [ "$candidate_name" = "official" ]; then
       continue
     fi
 
-    candidate_time=$(probe_url "$candidate_probe" 3 || true)
-
-    if [ -n "$candidate_time" ]; then
-      echo "$label/$candidate_name: ${candidate_time}s => $candidate_value" >&2
-      if [ -z "$best_time" ] || is_faster "$candidate_time" "$best_time"; then
-        best_name="$candidate_name"
-        best_value="$candidate_value"
-        best_time="$candidate_time"
+    (
+      local speed=""
+      speed=$(probe_url_speed "$candidate_probe" 12 5242880 2>/dev/null) || true
+      if [ -n "$speed" ]; then
+        echo "$candidate_name|$candidate_value|$speed" > "$tmpdir/$candidate_name"
+        local display=""
+        display=$(python3 -c "s=float('$speed');print(f'{s/1024:.2f} MB/s' if s>=1024 else f'{s:.1f} KB/s')" 2>/dev/null)
+        echo "$label/$candidate_name: $display => $candidate_value" >&2
+      else
+        echo "$label/$candidate_name: 探测失败" >&2
       fi
-    else
-      echo "$label/$candidate_name: timeout => $candidate_value" >&2
+    ) &
+    pids+=($!)
+    running=$((running + 1))
+    if [ "$running" -ge "$max_parallel" ]; then
+      wait -n 2>/dev/null || true
+      running=$((running - 1))
     fi
   done <<< "$candidates"
 
-  if [ -n "$best_value" ]; then
-    echo "$label: 选择 $best_name (${best_time}s) => $best_value" >&2
+  wait "${pids[@]}" 2>/dev/null || true
+
+  # 按速度排序选最快
+  local results=""
+  local f=""
+  for f in "$tmpdir"/*; do
+    [ -f "$f" ] || continue
+    results+="$(cat "$f")"$'\n'
+  done
+  rm -rf "$tmpdir"
+
+  if [ -n "$results" ]; then
+    local best_line=""
+    best_line=$(printf '%s' "$results" | sort -t '|' -k 3,3rn | head -n 1)
+    local best_name="" best_value="" best_speed=""
+    IFS='|' read -r best_name best_value best_speed <<< "$best_line"
+    local display=""
+    display=$(python3 -c "s=float('$best_speed');print(f'{s/1024:.2f} MB/s' if s>=1024 else f'{s:.1f} KB/s')" 2>/dev/null)
+    echo "$label: 选择 $best_name ($display) => $best_value" >&2
     printf '%s' "$best_value"
     return 0
   fi
@@ -462,6 +534,13 @@ configure_download_sources() {
     echo "HuggingFace: 使用手动配置 $DOCKER_HF_ENDPOINT"
   fi
 
+  if [ -z "${DOCKER_PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then
+    export DOCKER_PLAYWRIGHT_DOWNLOAD_HOST
+    DOCKER_PLAYWRIGHT_DOWNLOAD_HOST=$(select_source_from_candidates "Playwright" "DOCKER_PLAYWRIGHT_CANDIDATES_EXTRA" "$profile")
+  else
+    echo "Playwright: 使用手动配置 $DOCKER_PLAYWRIGHT_DOWNLOAD_HOST"
+  fi
+
   echo "已选择下载源："
   echo "- APT: $DOCKER_APT_BASE_URL"
   echo "- PyPI: $DOCKER_PIP_INDEX_URL"
@@ -470,10 +549,7 @@ configure_download_sources() {
   fi
   echo "- npm: $DOCKER_NPM_REGISTRY"
   echo "- HuggingFace: $DOCKER_HF_ENDPOINT"
-
-  if [ -n "${DOCKER_PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then
-    echo "- Playwright 下载 Host: $DOCKER_PLAYWRIGHT_DOWNLOAD_HOST"
-  fi
+  echo "- Playwright: $DOCKER_PLAYWRIGHT_DOWNLOAD_HOST"
 }
 
 normalize_image_ref() {
@@ -1295,6 +1371,10 @@ run_remote_mode() {
 run_local_mode() {
   local build_args=()
   local up_args=(-d --remove-orphans)
+
+  # 启用 BuildKit：并行层构建 + 更智能的缓存
+  export DOCKER_BUILDKIT=1
+  export COMPOSE_DOCKER_CLI_BUILD=1
 
   configure_download_sources
 
