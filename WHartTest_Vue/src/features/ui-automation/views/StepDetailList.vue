@@ -63,7 +63,6 @@
                 <span class="info-label">参数:</span>
                 <span class="ope-value">{{ formatOpeValue(element.ope_value) }}</span>
               </span>
-              <span v-if="element.func" class="func-code">Python代码</span>
               <span v-if="element.sql_execute && Object.keys(element.sql_execute).length > 0" class="sql-info">SQL操作</span>
               <span v-if="element.custom && Object.keys(element.custom).length > 0" class="custom-info">自定义变量</span>
               <span v-if="element.condition_value && Object.keys(element.condition_value).length > 0" class="condition-info">条件判断</span>
@@ -224,13 +223,6 @@
           </a-form-item>
         </template>
 
-        <!-- Python 代码 -->
-        <template v-else-if="formData.step_type === 5">
-          <a-form-item field="func" label="Python 代码">
-            <a-textarea v-model="formData.func" placeholder="输入 Python 代码" :auto-size="{ minRows: 5 }" />
-          </a-form-item>
-        </template>
-
         <a-form-item field="description" label="描述">
           <a-input v-model="formData.description" placeholder="可选描述" />
         </a-form-item>
@@ -360,7 +352,6 @@ const stepTypeColors: Record<StepType, string> = {
   2: 'purple',
   3: 'green',
   4: 'magenta',
-  5: 'red',
 }
 
 const fetchSteps = async () => {
@@ -781,7 +772,6 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.func-code,
 .sql-info,
 .custom-info,
 .condition-info {
