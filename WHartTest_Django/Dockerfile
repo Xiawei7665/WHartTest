@@ -152,8 +152,16 @@ COPY --from=builder /opt/venv /opt/venv
 # 复制第三方许可证声明文件（用于对外分发合规）
 COPY THIRD_PARTY_NOTICES.md /app/THIRD_PARTY_NOTICES.md
 
-# 安装 Playwright 浏览器（Chromium）
-RUN /opt/venv/bin/playwright install chromium
+# 安装 Playwright 浏览器（Chromium）—— 镜像源失败时自动回退官方源
+RUN set -eux; \
+    if /opt/venv/bin/playwright install chromium; then \
+      echo "Playwright chromium installed successfully"; \
+    elif [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then \
+      echo "Mirror download failed, retrying with official source..."; \
+      PLAYWRIGHT_DOWNLOAD_HOST= /opt/venv/bin/playwright install chromium; \
+    else \
+      exit 1; \
+    fi
 
 # 收集第三方许可证文件（Playwright/Pillow/Chromium/FFmpeg）
 RUN set -eux; \
