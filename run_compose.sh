@@ -1456,6 +1456,50 @@ run_remote_mode() {
   "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" up "${up_args[@]}"
 }
 
+configure_local_base_images() {
+  local profile=""
+  profile=$(normalize_source_profile)
+
+  if [ "$profile" = "native" ]; then
+    echo "基础镜像: 使用官方源（native 模式）"
+    return 0
+  fi
+
+  echo "基础镜像加速: 探测最快 DockerHub / MCR 镜像源..."
+
+  _RANKED_DIR=$(mktemp -d)
+  export _RANKED_DIR
+
+  local dockerhub_candidate=""
+  local mcr_candidate=""
+  dockerhub_candidate=$(select_remote_candidate dockerhub "$profile")
+  mcr_candidate=$(select_remote_candidate mcr "$profile")
+
+  # 构建参数中的基础镜像
+  apply_remote_image_override DOCKER_PYTHON_BASE_IMAGE "python:3.11-slim" "$dockerhub_candidate"
+  apply_remote_image_override DOCKER_NODE_BASE_IMAGE "node:20-alpine" "$dockerhub_candidate"
+  apply_remote_image_override DOCKER_NGINX_BASE_IMAGE "nginx:alpine" "$dockerhub_candidate"
+
+  # 直接拉取的服务镜像
+  apply_remote_image_override DOCKER_POSTGRES_IMAGE "postgres:16-alpine" "$dockerhub_candidate"
+  apply_remote_image_override DOCKER_REDIS_IMAGE "redis:7-alpine" "$dockerhub_candidate"
+  apply_remote_image_override DOCKER_QDRANT_IMAGE "qdrant/qdrant:latest" "$dockerhub_candidate"
+  apply_remote_image_override DOCKER_PLAYWRIGHT_MCP_IMAGE "mcr.microsoft.com/playwright/mcp" "$mcr_candidate"
+
+  echo "已选择基础镜像源："
+  echo "- Python: ${DOCKER_PYTHON_BASE_IMAGE:-python:3.11-slim}"
+  echo "- Node: ${DOCKER_NODE_BASE_IMAGE:-node:20-alpine}"
+  echo "- Nginx: ${DOCKER_NGINX_BASE_IMAGE:-nginx:alpine}"
+  echo "- PostgreSQL: ${DOCKER_POSTGRES_IMAGE:-postgres:16-alpine}"
+  echo "- Redis: ${DOCKER_REDIS_IMAGE:-redis:7-alpine}"
+  echo "- Qdrant: ${DOCKER_QDRANT_IMAGE:-qdrant/qdrant:latest}"
+  echo "- Playwright MCP: ${DOCKER_PLAYWRIGHT_MCP_IMAGE:-mcr.microsoft.com/playwright/mcp}"
+
+  if [ -n "${_RANKED_DIR:-}" ] && [ -d "$_RANKED_DIR" ]; then
+    rm -rf "$_RANKED_DIR"
+  fi
+}
+
 run_local_mode() {
   local build_args=()
   local up_args=(-d --remove-orphans)
@@ -1465,6 +1509,7 @@ run_local_mode() {
   export COMPOSE_DOCKER_CLI_BUILD=1
 
   configure_download_sources
+  configure_local_base_images
 
   if [ "${DOCKER_BUILD_NO_CACHE:-0}" = "1" ]; then
     build_args+=(--no-cache)
@@ -1507,7 +1552,7 @@ print_summary() {
 说明:
 - 运行脚本后可选择两种模式：`remote` 远程拉预构建镜像，`local` 本地构建镜像。
 - `remote` 模式会按仓库类型自动测速：Docker Hub 在官方 / `docker.1panel.live` / `docker.1ms.run` / `docker.xuanyuan.me` / `docker.m.daocloud.io` 之间择优，GHCR 在官方 / `ghcr.1ms.run` / `ghcr.nju.edu.cn` / `ghcr.m.daocloud.io` 之间择优，MCR 在官方 / `mcr.azure.cn` / `mcr.m.daocloud.io` 之间择优。
-- `local` 模式会自动探测下载源；内置候选已扩展为官方源 + 清华 / 中科大 / 阿里云 / 腾讯云 / 华为云 / 北外 / 交大 / `npmmirror` / `hf-mirror` 等。
+- `local` 模式会自动探测下载源和基础镜像加速；下载源内置候选已扩展为官方源 + 清华 / 中科大 / 阿里云 / 腾讯云 / 华为云 / 北外 / 交大 / `npmmirror` / `hf-mirror` 等；基础镜像（Python / Node / Nginx / PostgreSQL / Redis / Qdrant / Playwright MCP）会自动选最快的 DockerHub / MCR 镜像源加速拉取。
 - `DOCKER_SOURCE_PROFILE` 支持 `auto|native|mirror`；`auto` 会在全部候选里测速选最快，`mirror` 只在镜像源里选最快。
 - `DOCKER_BUILD_NO_CACHE=1` 只对 `local` 模式生效；`DOCKER_REMOTE_PULL=0` 可跳过 `remote` 模式下的 `pull`。
 EOF2
