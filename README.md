@@ -151,7 +151,7 @@ DOCKER_BUILD_NO_CACHE=1 ./run_compose.sh local
 | | |
   |---|---|
   | ![alt text](docs/public/img/image-a1.png) | ![alt text](docs/public/img/image-a2.png) |
-  | ![alt text](docs/public/img/image-a3.png)| ![alt text](docs/public/img/image-a4.png) |
+  | ![alt text](docs/public/img/image-a3.png) | ![alt text](docs/public/img/image-a4.png) |
   | ![alt text](docs/public/img/image-a5.png) | ![alt text](docs/public/img/image-a17.png) |
   | ![alt text](docs/public/img/image-a7.png) | ![alt text](docs/public/img/image-a8.png) |
   | ![alt text](docs/public/img/image-a9.png) | ![alt text](docs/public/img/image-a10.png) |
